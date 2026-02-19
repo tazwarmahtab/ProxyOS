@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Disable Turbopack to use Webpack instead (fixes LightningCSS issues)
+  experimental: {},
   webpack: (config, { isServer }) => {
     // Handle lightningcss native bindings
     if (!isServer) {
