@@ -1424,34 +1424,60 @@ async function startTailscale() {
   }
   
   try {
-    console.log('🔄 Starting Tailscale...');
     const { exec } = await import('child_process');
+    const { writeFileSync, mkdirSync, existsSync } = await import('fs');
+    const { chmodSync } = await import('fs');
+    const path = await import('path');
     
-    // Debug: check where tailscale is
-    exec('which tailscale || find /usr -name tailscale 2>/dev/null || find /opt -name tailscale 2>/dev/null || echo "tailscale not found"', (err, whichOut) => {
-      console.log('🔍 Tailscale location:', whichOut.trim() || 'not found');
-    });
-    
-    await new Promise((resolve, reject) => {
+    // Check if tailscale exists
+    exec('which tailscale', async (err) => {
+      if (err) {
+        console.log('🔄 Downloading Tailscale...');
+        
+        // Download Tailscale at runtime
+        const tgzPath = '/tmp/tailscale.tgz';
+        const optPath = '/opt/tailscale';
+        
+        try {
+          const { execSync } = await import('child_process');
+          
+          // Download
+          execSync('curl -fsSL https://tailscale.com/stable/tailscale_1.76.6_amd64.tgz -o /tmp/tailscale.tgz', { stdio: 'pipe' });
+          
+          // Extract
+          mkdirSync('/opt', { recursive: true });
+          execSync('tar -xzf /tmp/tailscale.tgz -C /opt', { stdio: 'pipe' });
+          
+          // Make executable
+          chmodSync('/opt/tailscale_1.76.6_amd64/tailscaled', '755');
+          chmodSync('/opt/tailscale_1.76.6_amd64/tailscale', '755');
+          
+          console.log('✅ Tailscale downloaded');
+        } catch (downloadErr) {
+          console.log('⚠️ Could not download Tailscale:', downloadErr.message);
+          console.log('   Using public URL instead for connectivity');
+          return;
+        }
+      }
+      
+      console.log('🔄 Starting Tailscale...');
+      
       exec(`tailscale up --authkey=${tsAuthKey} --hostname=${tsHostname}`, (error, stdout, stderr) => {
         if (error) {
           console.error('❌ Tailscale failed to start:', stderr);
-          reject(error);
           return;
         }
         console.log('✅ Tailscale started:', stdout.trim());
-        resolve(stdout);
+        
+        setTimeout(() => {
+          exec('tailscale ip -4', (err, ipOut) => {
+            if (!err && ipOut) {
+              console.log(`🌐 Tailscale IP: ${ipOut.trim()}`);
+            }
+          });
+        }, 5000);
       });
     });
-    
-    setTimeout(async () => {
-      const { exec } = await import('child_process');
-      exec('tailscale ip -4', (error, stdout) => {
-        if (!error && stdout) {
-          console.log(`🌐 Tailscale IP: ${stdout.trim()}`);
-        }
-      });
-    }, 5000);
   } catch (error) {
     console.error('❌ Tailscale initialization error:', error.message);
   }
