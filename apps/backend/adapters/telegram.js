@@ -5,7 +5,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const PROXYOS_BACKEND_URL = process.env.PROXYOS_BACKEND_URL || 'http://proxyos-backend:3000';
+const PROXYOS_BACKEND_URL = process.env.PROXYOS_BACKEND_URL || 'https://taz7770-proxyos-backend.hf.space';
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 
