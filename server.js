@@ -904,6 +904,88 @@ app.get('/api/context/:id/result', async (req, res) => {
   }
 });
 
+// --- Browserbase Browser Sessions --------------------------------------------
+
+import { Browserbase } from '@browserbasehq/sdk';
+
+const browserbaseApiKey = process.env.BROWSERBASE_API_KEY;
+const browserbaseProjectId = process.env.BROWSERBASE_PROJECT_ID;
+const bb = browserbaseApiKey ? new Browserbase({ apiKey: browserbaseApiKey }) : null;
+
+app.post('/api/browser/create-session', async (req, res) => {
+  try {
+    if (!bb || !browserbaseProjectId) {
+      return res.status(503).json({ 
+        status: 'error', 
+        message: 'Browserbase not configured. Set BROWSERBASE_API_KEY and BROWSERBASE_PROJECT_ID.' 
+      });
+    }
+
+    const { browserSettings } = req.body || {};
+
+    const session = await bb.sessions.create({
+      projectId: browserbaseProjectId,
+      browserSettings: browserSettings || {
+        fingerprint: {
+          browsers: ['chrome'],
+          devices: ['desktop'],
+          operatingSystems: ['macos']
+        }
+      }
+    });
+
+    res.json({
+      status: 'success',
+      session: {
+        id: session.id,
+        connectUrl: `wss://connect.browserbase.com?sessionId=${session.id}`,
+        pageUrl: session.pageUrl
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ status: 'error', message: err.message });
+  }
+});
+
+app.get('/api/browser/session/:sessionId', async (req, res) => {
+  try {
+    if (!bb) {
+      return res.status(503).json({ status: 'error', message: 'Browserbase not configured' });
+    }
+
+    const session = await bb.sessions.retrieve(req.params.sessionId);
+    res.json({ status: 'success', session });
+  } catch (err) {
+    res.status(500).json({ status: 'error', message: err.message });
+  }
+});
+
+app.delete('/api/browser/session/:sessionId', async (req, res) => {
+  try {
+    if (!bb) {
+      return res.status(503).json({ status: 'error', message: 'Browserbase not configured' });
+    }
+
+    await bb.sessions.update(req.params.sessionId, { status: 'CLOSED' });
+    res.json({ status: 'success', message: 'Session closed' });
+  } catch (err) {
+    res.status(500).json({ status: 'error', message: err.message });
+  }
+});
+
+app.get('/api/browser/sessions', async (_req, res) => {
+  try {
+    if (!bb || !browserbaseProjectId) {
+      return res.status(503).json({ status: 'error', message: 'Browserbase not configured' });
+    }
+
+    const sessions = await bb.sessions.list({ projectId: browserbaseProjectId });
+    res.json({ status: 'success', sessions });
+  } catch (err) {
+    res.status(500).json({ status: 'error', message: err.message });
+  }
+});
+
 // --- Startup -----------------------------------------------------------------
 
 app.listen(PORT, async () => {
