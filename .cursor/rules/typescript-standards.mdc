@@ -1,0 +1,75 @@
+---
+description: TypeScript coding standards and best practices
+globs: "**/*.ts"
+alwaysApply: false
+---
+
+# TypeScript Standards
+
+## Type Safety
+
+```typescript
+// ❌ Avoid any
+function process(data: any) { }
+
+// ✅ Use specific types
+interface UserData {
+  id: string;
+  name: string;
+  email: string;
+}
+function process(data: UserData) { }
+
+// ✅ Use unknown for truly unknown types
+function parse(input: unknown) {
+  if (typeof input === 'string') {
+    return input.trim();
+  }
+  throw new TypeError('Expected string');
+}
+```
+
+## Error Handling
+
+```typescript
+// ❌ Silent failures
+try {
+  await fetchData();
+} catch (e) {}
+
+// ✅ Proper handling with typed errors
+try {
+  await fetchData();
+} catch (e) {
+  if (e instanceof NetworkError) {
+    logger.error('Network failed', { error: e });
+    throw new ServiceUnavailableError('Unable to connect');
+  }
+  throw e;
+}
+```
+
+## Naming Conventions
+
+| Type | Convention | Example |
+|------|------------|---------|
+| Interfaces | PascalCase | `UserData` |
+| Type aliases | PascalCase | `RequestConfig` |
+| Functions | camelCase | `getUserById` |
+| Variables | camelCase | `userName` |
+| Constants | SCREAMING_SNAKE_CASE | `MAX_RETRIES` |
+| Files | kebab-case | `user-service.ts` |
+
+## Strict Mode
+
+Always enable strict mode in `tsconfig.json`:
+```json
+{
+  "compilerOptions": {
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true
+  }
+}
+```
