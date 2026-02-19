@@ -1,22 +1,25 @@
 {
-  "name": "proxyos-monorepo",
+  "name": "proxyos-backend",
+  "version": "0.0.1",
   "private": true,
-  "engines": {
-    "node": "20.x"
-  },
-  "workspaces": [
-    "packages/*",
-    "apps/*"
-  ],
+  "main": "server.js",
+  "type": "module",
   "scripts": {
-    "build": "npm run build --workspace=@proxyos/shared && npm run build --workspace=web",
-    "dev": "cd apps/web && npm run dev",
-    "lint": "cd apps/web && npm run lint"
+    "start": "node server.js",
+    "dev": "node server.js",
+    "start:telegram": "node adapters/telegram.js",
+    "start:slack": "node adapters/slack.js"
   },
   "dependencies": {
-    "next": "14.2.21"
-  },
-  "devDependencies": {
-    "typescript": "^5"
+    "@browserbasehq/sdk": "^2.6.0",
+    "@google/generative-ai": "^0.2.0",
+    "@slack/bolt": "^3.17.0",
+    "@supabase/supabase-js": "^2.39.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "grammy": "^1.21.1",
+    "groq-sdk": "^0.3.0",
+    "node-cron": "^3.0.3"
   }
 }
