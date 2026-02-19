@@ -23,16 +23,15 @@ export class WorldConceptGenerator {
 
     try {
       // Generate image using Stable Diffusion XL
-      const response = await hf.textToImage({
+      const response = (await hf.textToImage({
         model: 'stabilityai/stable-diffusion-xl-base-1.0',
         inputs: `pixel art, isometric office, ${prompt}, detailed, vibrant colors, retro gaming aesthetic`,
         parameters: {
           num_inference_steps: 20,
           guidance_scale: 7.5,
         },
-      });
+      })) as unknown as Blob;
 
-      // Convert blob to data URL
       const blob = await response.arrayBuffer();
       const base64 = Buffer.from(blob).toString('base64');
       const imageUrl = `data:image/png;base64,${base64}`;

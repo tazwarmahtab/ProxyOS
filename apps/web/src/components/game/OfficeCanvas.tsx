@@ -124,8 +124,8 @@ export function OfficeCanvas({ tasks, activeSkin }: OfficeCanvasProps) {
         }
       }
 
-      startIdleAnimation(agent: Phaser.GameObjects.GameObject) {
-        const y = agent.getData('originalY') || agent.y;
+      startIdleAnimation(agent: Phaser.GameObjects.Sprite) {
+        const y = agent.getData('originalY') ?? agent.y;
         this.tweens.add({
           targets: agent,
           y: y - 5,
