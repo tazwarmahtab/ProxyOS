@@ -3,7 +3,7 @@
 import { useEffect, useRef } from 'react';
 import Phaser from 'phaser';
 import type { AgentTask } from '@/hooks/useTasks';
-import type { Skin } from '@proxyos/shared/skins';
+import type { Skin } from '@/lib/shared/skins';
 
 interface OfficeCanvasProps {
   tasks: AgentTask[];

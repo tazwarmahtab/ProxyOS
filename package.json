@@ -1,18 +1,40 @@
 {
-  "name": "proxyos-monorepo",
+  "name": "proxyos-web",
+  "version": "0.1.0",
   "private": true,
   "engines": {
     "node": "20.x"
   },
   "scripts": {
-    "build": "pnpm --filter @proxyos/shared build && pnpm --filter web build",
-    "dev": "pnpm --filter web dev",
-    "lint": "pnpm --filter web lint"
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
   },
   "dependencies": {
-    "next": "14.2.21"
+    "@huggingface/inference": "^2.6.0",
+    "@react-three/drei": "^9.99.0",
+    "@react-three/fiber": "^8.15.0",
+    "@sanity/client": "^7.15.0",
+    "@sanity/image-url": "^2.0.3",
+    "@supabase/supabase-js": "^2.39.0",
+    "@types/three": "^0.160.0",
+    "autoprefixer": "10.4.16",
+    "next": "14.2.21",
+    "next-sanity": "^12.1.0",
+    "phaser": "^3.80.0",
+    "postcss": "8.4.31",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "tailwindcss": "3.4.0",
+    "three": "^0.160.0"
   },
   "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "eslint": "^8",
+    "eslint-config-next": "14.2.21",
     "typescript": "^5"
   }
 }

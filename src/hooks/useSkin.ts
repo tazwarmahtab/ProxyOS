@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase/client';
-import { SkinId, getSkin } from '@proxyos/shared/skins';
+import { SkinId, getSkin } from '@/lib/shared/skins';
 
 export function useSkin() {
   const [activeSkinId, setActiveSkinId] = useState<SkinId>('default');

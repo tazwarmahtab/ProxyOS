@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import { useSkin } from '@/hooks/useSkin';
-import type { Skin } from '@proxyos/shared/skins';
+import type { Skin } from '@/lib/shared/skins';
 
 interface MemoryVaultProps {
   activeSkin: Skin;

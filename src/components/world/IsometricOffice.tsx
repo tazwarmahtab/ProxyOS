@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
-import type { Skin } from '@proxyos/shared/skins';
+import type { Skin } from '@/lib/shared/skins';
 
 interface IsometricOfficeProps {
   geometry: any;
