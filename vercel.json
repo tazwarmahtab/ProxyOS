@@ -1,7 +1,9 @@
 {
+  "buildCommand": "cd apps/web && npm run build",
   "outputDirectory": "apps/web/.next",
+  "installCommand": "cd apps/web && npm install",
+  "framework": "nextjs",
   "env": {
-    "NEXT_TELEMETRY_DISABLED": "1",
-    "NEXT_PRIVATE_SKIP_TURBOPACK": "1"
+    "NEXT_TELEMETRY_DISABLED": "1"
   }
 }
