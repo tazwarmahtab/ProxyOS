@@ -182,12 +182,10 @@ async function persistMemory(agentRole, memoryContent) {
       .from('agent_memories')
       .update({
         memory_markdown: memoryContent,
-        last_updated: new Date().toISOString(),
-        version: supabase.rpc
+        last_updated: new Date().toISOString()
       })
       .eq('agent_role', agentRole);
   } catch (err) {
-    // eslint-disable-next-line no-console
     console.error(`[ProxyOS backend] Failed to persist memory for ${agentRole}:`, err.message);
   }
 }
@@ -515,12 +513,13 @@ app.post('/api/feed-context', async (req, res) => {
 
     if (ctxError) throw ctxError;
 
-    // simple energy bump
-    await supabase.rpc('increment_proxy_energy', {
-      energy_amount: energyGained
-    }).catch(() => {
+    try {
+      await supabase.rpc('increment_proxy_energy', {
+        energy_amount: energyGained
+      });
+    } catch (e) {
       // ignore if RPC not defined yet
-    });
+    }
 
     const delegation = await analyzeAndDelegate(raw_input, contextRow.id, project_tag);
 
@@ -764,9 +763,11 @@ app.post('/api/inbound-message', async (req, res) => {
 
     if (ctxError) throw ctxError;
 
-    await supabase.rpc('increment_proxy_energy', {
-      energy_amount: energyGained
-    }).catch(() => {});
+    try {
+      await supabase.rpc('increment_proxy_energy', {
+        energy_amount: energyGained
+      });
+    } catch (e) {}
 
     const { error: deliveryError } = await supabase
       .from('outbound_deliveries')
