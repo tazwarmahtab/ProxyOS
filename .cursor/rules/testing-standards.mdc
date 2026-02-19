@@ -1,0 +1,79 @@
+---
+description: Testing patterns and standards
+globs: "**/*.test.ts,**/*.spec.ts,**/*.test.tsx,**/*.spec.tsx"
+alwaysApply: false
+---
+
+# Testing Standards
+
+## Test Structure (AAA Pattern)
+
+```typescript
+describe('UserService', () => {
+  describe('createUser', () => {
+    it('should create user with valid data', () => {
+      // Arrange
+      const data = { 
+        email: 'test@example.com', 
+        name: 'Test User' 
+      };
+      const mockDb = createMockDb();
+      
+      // Act
+      const result = userService.createUser(data);
+      
+      // Assert
+      expect(result).toBeDefined();
+      expect(result.email).toBe(data.email);
+      expect(mockDb.insert).toHaveBeenCalledWith('users', data);
+    });
+  });
+});
+```
+
+## Test Naming Convention
+
+```
+should_[expectedBehavior]_when_[condition]
+```
+
+Examples:
+- `should_return_user_when_id_exists`
+- `should_throw_error_when_input_invalid`
+- `should_create_order_when_payment_successful`
+
+## Test Organization
+
+```
+tests/
+├── unit/           # Fast, isolated tests
+├── integration/    # API, database tests
+└── e2e/            # Full user flows
+```
+
+## What to Test
+
+| Type | Coverage |
+|------|----------|
+| Happy path | Expected behavior |
+| Error cases | Exceptions, failures |
+| Edge cases | Boundaries, empty input |
+| Integration | Component interactions |
+
+## Best Practices
+
+```typescript
+// One assertion per test (or related group)
+it('should validate email format', () => {
+  expect(isValidEmail('test@example.com')).toBe(true);
+  expect(isValidEmail('invalid')).toBe(false);
+});
+
+// Use descriptive test names
+it('should return 404 when user does not exist', async () => {
+  // ...
+});
+
+// Mock external dependencies
+jest.mock('./database');
+```

@@ -1,0 +1,86 @@
+---
+description: Python coding standards and best practices
+globs: "**/*.py"
+alwaysApply: false
+---
+
+# Python Standards
+
+## Type Hints
+
+```python
+# ❌ No types
+def get_user(user_id):
+    return db.query(user_id)
+
+# ✅ With types
+from typing import Optional
+
+def get_user(user_id: str) -> Optional[User]:
+    return db.query(user_id)
+
+# ✅ Use modern type syntax (Python 3.10+)
+def get_users(ids: list[str]) -> dict[str, User]:
+    return {id: db.query(id) for id in ids}
+```
+
+## Error Handling
+
+```python
+# ❌ Bare except
+try:
+    process()
+except:
+    pass
+
+# ✅ Specific exceptions
+try:
+    process()
+except ValidationError as e:
+    logger.error(f"Validation failed: {e}")
+    raise
+except Exception as e:
+    logger.exception("Unexpected error")
+    raise
+```
+
+## Naming Conventions
+
+| Type | Convention | Example |
+|------|------------|---------|
+| Classes | PascalCase | `UserAccount` |
+| Functions | snake_case | `get_user_by_id` |
+| Variables | snake_case | `user_name` |
+| Constants | SCREAMING_SNAKE_CASE | `MAX_CONNECTIONS` |
+| Private | _leading_underscore | `_internal_method` |
+| Modules | snake_case | `user_service.py` |
+
+## Code Style
+
+```python
+# Use f-strings (Python 3.6+)
+name = "Alice"
+greeting = f"Hello, {name}!"
+
+# Use context managers
+with open("file.txt") as f:
+    content = f.read()
+
+# Use dataclasses for data containers
+from dataclasses import dataclass
+
+@dataclass
+class User:
+    id: str
+    name: str
+    email: str
+```
+
+## Virtual Environment
+
+Always use virtual environment:
+```bash
+python -m venv .venv
+source .venv/bin/activate  # Unix
+.venv\Scripts\activate     # Windows
+```

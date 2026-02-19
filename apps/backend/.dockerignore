@@ -1,0 +1,17 @@
+node_modules
+.env
+.env.local
+*.log
+npm-debug.log*
+.DS_Store
+.git
+.gitignore
+*.md
+!README.md
+docker-compose.yml
+Dockerfile.adapters
+deploy.sh
+.terraform
+*.tf
+*.tfstate
+*.tfstate.*
