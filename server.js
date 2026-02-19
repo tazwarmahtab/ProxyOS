@@ -107,24 +107,32 @@ async function callBonsaiAPI(systemContent, userContent) {
 }
 
 async function routeToLLM(agentRole, prompt, context, taskType) {
-  if (nvidiaApiKey && (llmProvider === 'nvidia' || llmProvider === 'auto')) {
-    return callNvidiaAPI(context, prompt);
+  if (nvidiaApiKey) {
+    try {
+      return await callNvidiaAPI(context, prompt);
+    } catch (e) {
+      console.error('[ProxyOS] Nvidia API failed, trying fallback:', e.message);
+    }
   }
 
   if (groq) {
-    const completion = await groq.chat.completions.create({
-      messages: [
-        { role: 'system', content: context ?? '' },
-        { role: 'user', content: prompt }
-      ],
-      model: 'llama3-70b-8192',
-      temperature: 0.3,
-      max_tokens: 2048
-    });
-    return completion.choices[0].message.content;
+    try {
+      const completion = await groq.chat.completions.create({
+        messages: [
+          { role: 'system', content: context ?? '' },
+          { role: 'user', content: prompt }
+        ],
+        model: 'llama-3.3-70b-versatile',
+        temperature: 0.3,
+        max_tokens: 2048
+      });
+      return completion.choices[0].message.content;
+    } catch (e) {
+      console.error('[ProxyOS] Groq API failed:', e.message);
+    }
   }
 
-  const useGemini = genAI && (taskType === 'strategy' || taskType === 'deep_reasoning' || prompt.length > 4000);
+  const useGemini = genAI && (taskType === 'strategy' || taskType === 'deep_reasoning');
 
   if (useGemini) {
     const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
@@ -135,11 +143,7 @@ async function routeToLLM(agentRole, prompt, context, taskType) {
     return result.response.text();
   }
 
-  if (bonsaiApiKey && llmProvider === 'bonsai') {
-    return callBonsaiAPI(context, prompt);
-  }
-
-  throw new Error('No LLM provider configured. Set NVIDIA_API_KEY, GROQ_API_KEY, or BONSAI_API_KEY');
+  throw new Error('No LLM provider available');
 }
 
 // --- Memory sync ------------------------------------------------------------
