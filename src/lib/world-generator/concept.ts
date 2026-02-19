@@ -1,7 +1,19 @@
-import { HfInference } from '@huggingface/inference';
+// HuggingFace inference is optional - install @huggingface/inference to enable
+let hf: { textToImage: (opts: Record<string, unknown>) => Promise<unknown> } | null = null;
 
-const HF_TOKEN = process.env.NEXT_PUBLIC_HF_TOKEN;
-const hf = HF_TOKEN ? new HfInference(HF_TOKEN) : null;
+try {
+  const HF_TOKEN = process.env.NEXT_PUBLIC_HF_TOKEN;
+  if (HF_TOKEN) {
+    // Dynamic import to avoid build errors when package is not installed
+    import('@huggingface/inference').then(({ HfInference }) => {
+      hf = new HfInference(HF_TOKEN);
+    }).catch(() => {
+      console.warn('HuggingFace inference package not available');
+    });
+  }
+} catch {
+  // Package not installed - concept generation will use fallback
+}
 
 export interface WorldConcept {
   prompt: string;
