@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import dynamic from 'next/dynamic';
 import { useTasks } from '@/hooks/useTasks';
 import { useProxyStats } from '@/hooks/useProxyStats';
 import { useSkin } from '@/hooks/useSkin';
@@ -8,7 +9,11 @@ import { CommandCenter } from '@/components/office/CommandCenter';
 import { SwarmDrawer } from '@/components/office/SwarmDrawer';
 import { ProxyDashboard } from '@/components/office/ProxyDashboard';
 import { MemoryVault } from '@/components/office/MemoryVault';
-import { OfficeCanvas } from '@/components/game/OfficeCanvas';
+
+const OfficeCanvas = dynamic(
+  () => import('@/components/game/OfficeCanvas').then((mod) => mod.OfficeCanvas),
+  { ssr: false }
+);
 
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState<'office' | 'proxy'>('office');
