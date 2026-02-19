@@ -13,6 +13,9 @@
     "dev": "cd apps/web && npm run dev",
     "lint": "cd apps/web && npm run lint"
   },
+  "dependencies": {
+    "next": "14.2.21"
+  },
   "devDependencies": {
     "typescript": "^5"
   }
