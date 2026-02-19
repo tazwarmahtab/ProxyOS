@@ -992,5 +992,119 @@ app.listen(PORT, async () => {
   // eslint-disable-next-line no-console
   console.log(`[ProxyOS backend] Listening on port ${PORT}`);
   await syncMemoriesOnBoot();
+  
+  // Start Telegram bot if token is configured
+  if (process.env.TELEGRAM_BOT_TOKEN) {
+    startTelegramBot();
+  }
 });
+
+// --- Telegram Bot Integration ------------------------------------------------
+
+import { Bot } from 'grammy';
+
+function startTelegramBot() {
+  const bot = new Bot(process.env.TELEGRAM_BOT_TOKEN);
+  
+  bot.on('message:text', async (ctx) => {
+    const userId = ctx.from?.id;
+    const chatId = ctx.chat?.id;
+    const text = ctx.message?.text;
+
+    if (!userId || !chatId || !text) return;
+    if (text.startsWith('/')) return;
+
+    try {
+      await ctx.replyWithChatAction('typing');
+
+      const result = await sendToProxyOS(text, userId, chatId);
+
+      if (!result.context_id) {
+        await ctx.reply('Sorry, I could not process your request. Please try again.');
+        return;
+      }
+
+      const finalResult = await pollForResult(result.context_id);
+
+      if (!finalResult || !finalResult.aggregated_text) {
+        await ctx.reply('Your request is being processed. I\'ll notify you when complete.');
+        return;
+      }
+
+      let replyText = finalResult.aggregated_text;
+      if (replyText.length > 4000) {
+        replyText = replyText.substring(0, 3950) + '\n\n... (truncated)';
+      }
+
+      await ctx.reply(replyText);
+    } catch (err) {
+      console.error('[Telegram] Error:', err.message);
+      await ctx.reply('An error occurred. Please try again later.');
+    }
+  });
+
+  bot.command('start', async (ctx) => {
+    await ctx.reply(
+      '👋 Hello! I\'m your ProxyOS assistant.\n\n' +
+      'Send me any message and I\'ll delegate it to my AI agents.\n\n' +
+      'Commands:\n/start - Show this message\n/help - Get help'
+    );
+  });
+
+  bot.command('help', async (ctx) => {
+    await ctx.reply(
+      '🤖 ProxyOS AI Office Assistant\n\n' +
+      'I have three specialized agents:\n\n' +
+      '• Minion: Coding, deployment, APIs\n' +
+      '• Scout: Research, market analysis\n' +
+      '• Sage: Strategy, QA, reviews\n\n' +
+      'Just send me a message describing what you need!'
+    );
+  });
+
+  bot.catch((err) => {
+    console.error('[Telegram] Bot error:', err);
+  });
+
+  bot.start();
+  console.log('[Telegram Bot] Started successfully');
+}
+
+async function sendToProxyOS(rawInput, channelUserId, chatId) {
+  const response = await fetch(`http://localhost:${PORT}/api/inbound-message`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      raw_input: rawInput,
+      channel: 'telegram',
+      channel_user_id: String(channelUserId),
+      reply_metadata: { chat_id: chatId }
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`ProxyOS returned ${response.status}`);
+  }
+
+  return response.json();
+}
+
+async function pollForResult(contextId, maxAttempts = 60, intervalMs = 2000) {
+  for (let i = 0; i < maxAttempts; i++) {
+    const response = await fetch(`http://localhost:${PORT}/api/context/${contextId}/result`);
+    
+    if (response.status === 202) {
+      await new Promise(r => setTimeout(r, intervalMs));
+      continue;
+    }
+
+    if (response.ok) {
+      return response.json();
+    }
+
+    await new Promise(r => setTimeout(r, intervalMs));
+  }
+
+  return null;
+}
 
