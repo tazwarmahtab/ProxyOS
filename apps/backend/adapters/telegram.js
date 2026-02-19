@@ -18,8 +18,11 @@ const supabase = createClient(SUPABASE_URL || '', SUPABASE_SERVICE_KEY || '');
 const bot = new Bot(TELEGRAM_BOT_TOKEN);
 
 const pendingContexts = new Map();
+const userProviders = new Map();
 
 async function sendToProxyOS(rawInput, channelUserId, chatId, threadTs = null) {
+  const selectedProvider = userProviders.get(String(chatId));
+  
   const replyMetadata = {
     chat_id: chatId
   };
@@ -34,7 +37,8 @@ async function sendToProxyOS(rawInput, channelUserId, chatId, threadTs = null) {
       raw_input: rawInput,
       channel: 'telegram',
       channel_user_id: String(channelUserId),
-      reply_metadata: replyMetadata
+      reply_metadata: replyMetadata,
+      provider: selectedProvider
     })
   });
 
@@ -143,6 +147,57 @@ bot.command('help', async (ctx) => {
     '• Sage: Strategy, QA, reviews, validation\n\n' +
     'Just send me a message describing what you need, and I\'ll route it to the right agent(s).'
   );
+});
+
+bot.command('provider', async (ctx) => {
+  const args = ctx.message.text.split(' ').slice(1);
+  const chatId = String(ctx.chat.id);
+  
+  if (args.length === 0) {
+    const current = userProviders.get(chatId) || 'nvidia';
+    await ctx.reply(
+      `Current provider: ${current}\n\n` +
+      'Available providers:\n' +
+      '• nvidia - NVIDIA GLM-5 (fast, recommended)\n' +
+      '• groq - Groq Llama (fast, free tier)\n' +
+      '• zai - Z.ai GLM-4 (free)\n' +
+      '• opencode - OpenCode (experimental)\n' +
+      '• openrouter - OpenRouter (multi-model)\n\n' +
+      'Use: /provider <name> to switch'
+    );
+    return;
+  }
+  
+  const provider = args[0].toLowerCase();
+  const validProviders = ['nvidia', 'groq', 'zai', 'opencode', 'openrouter'];
+  
+  if (!validProviders.includes(provider)) {
+    await ctx.reply(`Invalid provider: ${provider}\nValid: ${validProviders.join(', ')}`);
+    return;
+  }
+  
+  userProviders.set(chatId, provider);
+  await ctx.reply(`Provider set to: ${provider}`);
+});
+
+bot.command('providers', async (ctx) => {
+  try {
+    const response = await fetch('https://taz7770-proxyos-openclaw.hf.space/api/providers');
+    const data = await response.json();
+    
+    let message = '🔌 *Available Providers:*\n\n';
+    for (const p of data.providers) {
+      const status = p.healthy ? '✅' : '❌';
+      const enabled = p.enabled ? '' : ' (disabled)';
+      message += `${status} *${p.name}*${enabled}\n`;
+      message += `   Priority: ${p.priority}\n`;
+      message += `   Circuit: ${p.circuitBreaker?.state}\n\n`;
+    }
+    
+    await ctx.reply(message, { parse_mode: 'Markdown' });
+  } catch (error) {
+    await ctx.reply('Could not fetch provider status. Try again later.');
+  }
 });
 
 bot.catch((err) => {

@@ -3,11 +3,14 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
 import nodeCron from 'node-cron';
+import nodeCache from 'node-cache';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { Groq } from 'groq-sdk';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+
+const cache = new nodeCache({ stdTTL: 300 });
 
 dotenv.config();
 
@@ -39,6 +42,9 @@ const groqApiKey = process.env.GROQ_API_KEY;
 const geminiApiKey = process.env.GEMINI_API_KEY;
 const nvidiaApiKey = process.env.NVIDIA_API_KEY;
 const bonsaiApiKey = process.env.BONSAI_API_KEY;
+const opencodeApiKey = process.env.OPENCODE_API_KEY;
+const openrouterApiKey = process.env.OPENROUTER_API_KEY;
+const zaiApiKey = process.env.ZAI_API_KEY;
 const llmProvider = process.env.LLM_PROVIDER || 'nvidia';
 const nvidiaModel = process.env.NVIDIA_MODEL || 'z-ai/glm5';
 
@@ -106,7 +112,152 @@ async function callBonsaiAPI(systemContent, userContent) {
   return data.choices[0].message.content;
 }
 
-async function routeToLLM(agentRole, prompt, context, taskType) {
+async function callOpenCodeAPI(systemContent, userContent) {
+  const messages = [];
+  if (systemContent) messages.push({ role: 'system', content: systemContent });
+  messages.push({ role: 'user', content: userContent });
+
+  const response = await fetch('https://api.opencode.ai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-API-Key': opencodeApiKey
+    },
+    body: JSON.stringify({
+      model: 'opencode/default',
+      messages,
+      temperature: 0.7,
+      max_tokens: 4096
+    })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`OpenCode API error: ${response.status} - ${errorText}`);
+  }
+
+  const data = await response.json();
+  return data.choices[0].message.content;
+}
+
+async function callZaiAPI(systemContent, userContent) {
+  const messages = [];
+  if (systemContent) messages.push({ role: 'system', content: systemContent });
+  messages.push({ role: 'user', content: userContent });
+
+  const response = await fetch('https://api.z.ai/api/coding/paas/v4/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${zaiApiKey}`
+    },
+    body: JSON.stringify({
+      model: 'GLM-4.7-Flash',
+      messages,
+      temperature: 0.7,
+      max_tokens: 4096
+    })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Z.ai API error: ${response.status} - ${errorText}`);
+  }
+
+  const data = await response.json();
+  return data.choices[0].message.content;
+}
+
+async function callOpenRouterAPI(systemContent, userContent) {
+  const messages = [];
+  if (systemContent) messages.push({ role: 'system', content: systemContent });
+  messages.push({ role: 'user', content: userContent });
+
+  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${openrouterApiKey}`,
+      'HTTP-Referer': 'https://taz7770-proxyos-backend.hf.space',
+      'X-Title': 'ProxyOS Backend'
+    },
+    body: JSON.stringify({
+      model: 'anthropic/claude-3.5-sonnet',
+      messages,
+      temperature: 0.7,
+      max_tokens: 4096
+    })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`OpenRouter API error: ${response.status} - ${errorText}`);
+  }
+
+  const data = await response.json();
+  return data.choices[0].message.content;
+}
+
+async function routeToLLM(agentRole, prompt, context, taskType, selectedProvider) {
+  const provider = selectedProvider || 'nvidia';
+  
+  switch (provider) {
+    case 'nvidia':
+      if (nvidiaApiKey) {
+        try {
+          return await callNvidiaAPI(context, prompt);
+        } catch (e) {
+          console.error('[ProxyOS] Nvidia API failed, trying fallback:', e.message);
+        }
+      }
+      break;
+    case 'groq':
+      if (groq) {
+        try {
+          const completion = await groq.chat.completions.create({
+            messages: [
+              { role: 'system', content: context ?? '' },
+              { role: 'user', content: prompt }
+            ],
+            model: 'llama-3.3-70b-versatile',
+            temperature: 0.3,
+            max_tokens: 2048
+          });
+          return completion.choices[0].message.content;
+        } catch (e) {
+          console.error('[ProxyOS] Groq API failed:', e.message);
+        }
+      }
+      break;
+    case 'opencode':
+      if (opencodeApiKey) {
+        try {
+          return await callOpenCodeAPI(context, prompt);
+        } catch (e) {
+          console.error('[ProxyOS] OpenCode API failed:', e.message);
+        }
+      }
+      break;
+    case 'zai':
+      if (zaiApiKey) {
+        try {
+          return await callZaiAPI(context, prompt);
+        } catch (e) {
+          console.error('[ProxyOS] Z.ai API failed:', e.message);
+        }
+      }
+      break;
+    case 'openrouter':
+      if (openrouterApiKey) {
+        try {
+          return await callOpenRouterAPI(context, prompt);
+        } catch (e) {
+          console.error('[ProxyOS] OpenRouter API failed:', e.message);
+        }
+      }
+      break;
+  }
+
   if (nvidiaApiKey) {
     try {
       return await callNvidiaAPI(context, prompt);
@@ -192,6 +343,18 @@ class AgentMinion {
 
   async execute(task) {
     const started = Date.now();
+    let provider = 'nvidia';
+    try {
+      const { data: contextRow } = await supabase
+        .from('proxy_context')
+        .select('metadata')
+        .eq('id', task.context_id)
+        .single();
+      if (contextRow?.metadata?.provider) {
+        provider = contextRow.metadata.provider;
+      }
+    } catch (e) {}
+
     try {
       const dir = path.join(__dirname, 'agents', 'minion');
       const soul = await fs.readFile(path.join(dir, 'soul.md'), 'utf8');
@@ -207,7 +370,7 @@ Return only:
 - Deployment notes
 Do not include conversational filler.`;
 
-      const output = await routeToLLM(this.role, prompt, `${soul}\n\n${memory}`, 'code');
+      const output = await routeToLLM(this.role, prompt, `${soul}\n\n${memory}`, 'code', provider);
 
       const newMemory =
         memory +
@@ -237,6 +400,18 @@ class AgentScout {
 
   async execute(task) {
     const started = Date.now();
+    let provider = 'nvidia';
+    try {
+      const { data: contextRow } = await supabase
+        .from('proxy_context')
+        .select('metadata')
+        .eq('id', task.context_id)
+        .single();
+      if (contextRow?.metadata?.provider) {
+        provider = contextRow.metadata.provider;
+      }
+    } catch (e) {}
+
     try {
       const dir = path.join(__dirname, 'agents', 'scout');
       const soul = await fs.readFile(path.join(dir, 'soul.md'), 'utf8');
@@ -251,7 +426,7 @@ Return structured findings:
 - Citations / URLs (plain text)
 `;
 
-      const output = await routeToLLM(this.role, prompt, `${soul}\n\n${memory}`, 'research');
+      const output = await routeToLLM(this.role, prompt, `${soul}\n\n${memory}`, 'research', provider);
 
       const newMemory =
         memory +
@@ -281,6 +456,18 @@ class AgentSage {
 
   async execute(task) {
     const started = Date.now();
+    let provider = 'nvidia';
+    try {
+      const { data: contextRow } = await supabase
+        .from('proxy_context')
+        .select('metadata')
+        .eq('id', task.context_id)
+        .single();
+      if (contextRow?.metadata?.provider) {
+        provider = contextRow.metadata.provider;
+      }
+    } catch (e) {}
+
     try {
       const dir = path.join(__dirname, 'agents', 'sage');
       const soul = await fs.readFile(path.join(dir, 'soul.md'), 'utf8');
@@ -309,7 +496,7 @@ Respond with:
 - Any cross-country / scaling considerations
 `;
 
-      const output = await routeToLLM(this.role, prompt, `${soul}\n\n${memory}`, 'strategy');
+      const output = await routeToLLM(this.role, prompt, `${soul}\n\n${memory}`, 'strategy', provider);
 
       const verdict = output.includes('PASS') ? 'PASS' : 'NEEDS_WORK';
       const newMemory =
@@ -480,6 +667,18 @@ app.get('/health', async (_req, res) => {
   } catch (err) {
     res.status(500).json({ status: 'degraded', error: err.message });
   }
+});
+
+app.get('/api/providers', (_req, res) => {
+  res.json({
+    providers: [
+      { name: 'nvidia', healthy: !!nvidiaApiKey, enabled: true, priority: 1, circuitBreaker: { state: 'closed' } },
+      { name: 'groq', healthy: !!groqApiKey, enabled: true, priority: 2, circuitBreaker: { state: 'closed' } },
+      { name: 'zai', healthy: !!zaiApiKey, enabled: true, priority: 3, circuitBreaker: { state: 'closed' } },
+      { name: 'opencode', healthy: !!opencodeApiKey, enabled: true, priority: 4, circuitBreaker: { state: 'closed' } },
+      { name: 'openrouter', healthy: !!openrouterApiKey, enabled: true, priority: 5, circuitBreaker: { state: 'closed' } }
+    ]
+  });
 });
 
 app.post('/api/feed-context', async (req, res) => {
@@ -699,8 +898,11 @@ app.post('/api/inbound-message', async (req, res) => {
     channel_user_id,
     reply_metadata = {},
     project_tag,
-    idempotency_key
+    idempotency_key,
+    provider
   } = req.body ?? {};
+
+  const selectedProvider = provider || 'nvidia';
 
   if (!raw_input || typeof raw_input !== 'string') {
     return res.status(400).json({ status: 'error', message: 'raw_input is required' });
@@ -739,7 +941,8 @@ app.post('/api/inbound-message', async (req, res) => {
         channel_user_id,
         ...reply_metadata
       },
-      idempotency_key
+      idempotency_key,
+      provider: selectedProvider
     };
 
     const { data: contextRow, error: ctxError } = await supabase
