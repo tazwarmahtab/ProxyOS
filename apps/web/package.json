@@ -12,6 +12,7 @@
     "lint": "eslint"
   },
 "dependencies": {
+    "@huggingface/inference": "^2.6.0",
     "@react-three/drei": "^9.99.0",
     "@react-three/fiber": "^8.15.0",
     "@supabase/supabase-js": "^2.39.0",
