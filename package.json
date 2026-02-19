@@ -4,14 +4,10 @@
   "engines": {
     "node": "20.x"
   },
-  "workspaces": [
-    "packages/*",
-    "apps/*"
-  ],
   "scripts": {
-    "build": "npm run build --workspace=@proxyos/shared && npm run build --workspace=web",
-    "dev": "cd apps/web && npm run dev",
-    "lint": "cd apps/web && npm run lint"
+    "build": "pnpm --filter @proxyos/shared build && pnpm --filter web build",
+    "dev": "pnpm --filter web dev",
+    "lint": "pnpm --filter web lint"
   },
   "dependencies": {
     "next": "14.2.21"
