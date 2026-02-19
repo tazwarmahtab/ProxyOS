@@ -39,7 +39,7 @@ const groqApiKey = process.env.GROQ_API_KEY;
 const geminiApiKey = process.env.GEMINI_API_KEY;
 const nvidiaApiKey = process.env.NVIDIA_API_KEY;
 const bonsaiApiKey = process.env.BONSAI_API_KEY;
-const llmProvider = process.env.LLM_PROVIDER || 'bonsai';
+const llmProvider = process.env.LLM_PROVIDER || 'nvidia';
 const nvidiaModel = process.env.NVIDIA_MODEL || 'z-ai/glm5';
 
 const groq = groqApiKey ? new Groq({ apiKey: groqApiKey }) : null;
@@ -107,33 +107,7 @@ async function callBonsaiAPI(systemContent, userContent) {
 }
 
 async function routeToLLM(agentRole, prompt, context, taskType) {
-  const useGemini =
-    (taskType === 'strategy' || taskType === 'deep_reasoning' || prompt.length > 4000) &&
-    genAI &&
-    !bonsaiApiKey;
-
-  if (useGemini) {
-    const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
-    const result = await model.generateContent([
-      { text: context ?? '' },
-      { text: prompt }
-    ]);
-    return result.response.text();
-  }
-
-  if (llmProvider === 'bonsai' && bonsaiApiKey) {
-    return callBonsaiAPI(context, prompt);
-  }
-
-  if (llmProvider === 'nvidia' && nvidiaApiKey) {
-    return callNvidiaAPI(context, prompt);
-  }
-
-  if (bonsaiApiKey) {
-    return callBonsaiAPI(context, prompt);
-  }
-
-  if (nvidiaApiKey) {
+  if (nvidiaApiKey && (llmProvider === 'nvidia' || llmProvider === 'auto')) {
     return callNvidiaAPI(context, prompt);
   }
 
@@ -150,7 +124,22 @@ async function routeToLLM(agentRole, prompt, context, taskType) {
     return completion.choices[0].message.content;
   }
 
-  throw new Error('No LLM provider configured. Set BONSAI_API_KEY, NVIDIA_API_KEY, or GROQ_API_KEY');
+  const useGemini = genAI && (taskType === 'strategy' || taskType === 'deep_reasoning' || prompt.length > 4000);
+
+  if (useGemini) {
+    const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
+    const result = await model.generateContent([
+      { text: context ?? '' },
+      { text: prompt }
+    ]);
+    return result.response.text();
+  }
+
+  if (bonsaiApiKey && llmProvider === 'bonsai') {
+    return callBonsaiAPI(context, prompt);
+  }
+
+  throw new Error('No LLM provider configured. Set NVIDIA_API_KEY, GROQ_API_KEY, or BONSAI_API_KEY');
 }
 
 // --- Memory sync ------------------------------------------------------------
