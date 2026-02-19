@@ -13,7 +13,7 @@ export function CommandCenter({ stats, onTaskSubmitted }: CommandCenterProps) {
   const [input, setInput] = useState('');
   const [isListening, setIsListening] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const recognitionRef = useRef<any>(null);
 
   useEffect(() => {
     if (typeof window !== 'undefined' && 'webkitSpeechRecognition' in window) {
