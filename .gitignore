@@ -6,3 +6,5 @@ dist/
 .DS_Store
 *.log
 proxyos-backend/
+.vercel
+.env*.local
