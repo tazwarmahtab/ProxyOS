@@ -1,0 +1,83 @@
+version: '3.8'
+
+services:
+  proxyos-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: proxyos-backend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - proxyos-network
+
+  proxyos-telegram:
+    build:
+      context: .
+      dockerfile: Dockerfile.adapters
+    container_name: proxyos-telegram
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - ADAPTER_TYPE=telegram
+    depends_on:
+      proxyos-backend:
+        condition: service_healthy
+    command: ["node", "adapters/telegram.js"]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - proxyos-network
+    profiles:
+      - telegram
+
+  proxyos-slack:
+    build:
+      context: .
+      dockerfile: Dockerfile.adapters
+    container_name: proxyos-slack
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - ADAPTER_TYPE=slack
+    depends_on:
+      proxyos-backend:
+        condition: service_healthy
+    command: ["node", "adapters/slack.js"]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - proxyos-network
+    profiles:
+      - slack
+
+networks:
+  proxyos-network:
+    driver: bridge

@@ -1,0 +1,10 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm run build",
+  "outputDirectory": "apps/web/.next",
+  "installCommand": "npm install",
+  "framework": null,
+  "env": {
+    "NEXT_TELEMETRY_DISABLED": "1"
+  }
+}

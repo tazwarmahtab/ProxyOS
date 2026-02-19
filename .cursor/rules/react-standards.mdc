@@ -1,0 +1,77 @@
+---
+description: React component patterns and best practices
+globs: "**/*.tsx"
+alwaysApply: false
+---
+
+# React Standards
+
+## Component Structure
+
+```tsx
+// Functional components only
+interface Props {
+  title: string;
+  onSubmit: () => void;
+}
+
+export const MyComponent: React.FC<Props> = ({ title, onSubmit }) => {
+  // 1. Hooks at top
+  const [state, setState] = useState<State | null>(null);
+  const { data, isLoading } = useQuery(key, fetcher);
+  
+  // 2. Derived state
+  const isActive = state?.status === 'active';
+  
+  // 3. Callbacks
+  const handleClick = useCallback(() => {
+    onSubmit();
+  }, [onSubmit]);
+  
+  // 4. Early returns (guard clauses)
+  if (isLoading) return <Loading />;
+  if (!data) return null;
+  
+  // 5. Render
+  return (
+    <div onClick={handleClick}>
+      {title}
+    </div>
+  );
+};
+```
+
+## Hooks Rules
+
+- Only call hooks at top level
+- Only call hooks from React functions
+- Use `useCallback` for functions passed as props
+- Use `useMemo` for expensive calculations
+- Custom hooks for reusable logic
+
+## File Structure
+
+```
+ComponentName/
+├── index.tsx          # Main component
+├── ComponentName.tsx  # Named export
+├── styles.ts          # Styled components or CSS
+├── types.ts           # TypeScript types
+├── hooks.ts           # Custom hooks
+├── utils.ts           # Helper functions
+└── ComponentName.test.tsx
+```
+
+## Performance
+
+```tsx
+// ✅ Memoize expensive renders
+const ExpensiveList = React.memo(({ items }) => (
+  <ul>{items.map(renderItem)}</ul>
+));
+
+// ✅ Use key properly
+{items.map(item => (
+  <Item key={item.id} {...item} />
+))}
+```
