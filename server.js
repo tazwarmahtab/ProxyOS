@@ -1460,7 +1460,48 @@ app.listen(PORT, async () => {
   if (TELEGRAM_ENABLED && TELEGRAM_BOT_TOKEN) {
     startTelegramBot();
   }
+  
+  startTailscale();
 });
+
+async function startTailscale() {
+  const tsAuthKey = process.env.TS_AUTH_KEY;
+  const tsHostname = process.env.TS_HOSTNAME || 'proxyos-backend';
+  
+  if (!tsAuthKey) {
+    console.log('⚠️ Tailscale auth key not configured (TS_AUTH_KEY env var)');
+    console.log('   To enable Tailscale, set TS_AUTH_KEY environment variable');
+    return;
+  }
+  
+  try {
+    console.log('🔄 Starting Tailscale...');
+    const { exec } = await import('child_process');
+    
+    await new Promise((resolve, reject) => {
+      exec(`tailscale up --authkey=${tsAuthKey} --hostname=${tsHostname}`, (error, stdout, stderr) => {
+        if (error) {
+          console.error('❌ Tailscale failed to start:', stderr);
+          reject(error);
+          return;
+        }
+        console.log('✅ Tailscale started:', stdout.trim());
+        resolve(stdout);
+      });
+    });
+    
+    setTimeout(async () => {
+      const { exec } = await import('child_process');
+      exec('tailscale ip -4', (error, stdout) => {
+        if (!error && stdout) {
+          console.log(`🌐 Tailscale IP: ${stdout.trim()}`);
+        }
+      });
+    }, 5000);
+  } catch (error) {
+    console.error('❌ Tailscale initialization error:', error.message);
+  }
+}
 
 // --- Telegram Bot Integration ------------------------------------------------
 
