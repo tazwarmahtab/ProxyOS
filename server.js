@@ -1461,7 +1461,8 @@ app.listen(PORT, async () => {
     startTelegramBot();
   }
   
-  startTailscale();
+  // Tailscale can be enabled by uncommenting and setting TS_AUTH_KEY
+  // startTailscale();
 });
 
 async function startTailscale() {
