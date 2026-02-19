@@ -1,0 +1,66 @@
+---
+description: Database and SQL standards
+globs: "**/*.sql,**/migrations/**"
+alwaysApply: false
+---
+
+# Database Standards
+
+## Query Optimization
+
+```sql
+-- ✅ Select specific columns
+SELECT id, name, email FROM users WHERE active = true;
+
+-- ❌ Avoid SELECT *
+SELECT * FROM users;
+
+-- ✅ Use LIMIT for exploration
+SELECT * FROM orders LIMIT 100;
+
+-- ✅ Check query plan
+EXPLAIN ANALYZE SELECT * FROM users WHERE email = 'test@example.com';
+```
+
+## Indexing Guidelines
+
+```sql
+-- Index columns used in WHERE clauses
+CREATE INDEX idx_users_email ON users(email);
+
+-- Composite indexes (order matters!)
+CREATE INDEX idx_orders_user_date ON orders(user_id, created_at);
+
+-- Partial index for common queries
+CREATE INDEX idx_active_users ON users(email) WHERE active = true;
+```
+
+## Naming Conventions
+
+| Type | Convention | Example |
+|------|------------|---------|
+| Tables | snake_case, plural | `users`, `order_items` |
+| Columns | snake_case | `created_at`, `user_id` |
+| Primary keys | `id` or `<table>_id` | `id`, `user_id` |
+| Foreign keys | `<referenced_table>_id` | `user_id` |
+| Indexes | `idx_<table>_<columns>` | `idx_users_email` |
+| Constraints | `<type>_<table>_<column>` | `fk_orders_user_id` |
+
+## Migration Naming
+
+```
+YYYYMMDDHHMMSS_description.sql
+20240115120000_add_users_table.sql
+20240115130000_add_orders_table.sql
+```
+
+## Data Types
+
+| Use | Type |
+|-----|------|
+| IDs | UUID or BIGINT |
+| Timestamps | TIMESTAMPTZ |
+| Money | DECIMAL(10,2) |
+| JSON | JSONB |
+| Text | TEXT (not VARCHAR) |
+| Boolean | BOOLEAN |

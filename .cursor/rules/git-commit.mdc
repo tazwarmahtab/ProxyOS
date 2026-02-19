@@ -1,0 +1,68 @@
+---
+description: Commit message standards and conventions
+globs:
+alwaysApply: true
+---
+
+# Git Commit Standards
+
+## Format
+
+```
+<type>(<scope>): <subject>
+
+<body>
+
+<footer>
+```
+
+## Types
+
+| Type | Description |
+|------|-------------|
+| `feat` | New feature |
+| `fix` | Bug fix |
+| `docs` | Documentation only |
+| `style` | Formatting, no code change |
+| `refactor` | Code restructuring |
+| `test` | Adding/updating tests |
+| `chore` | Maintenance, deps |
+| `perf` | Performance improvement |
+| `ci` | CI/CD changes |
+| `revert` | Revert previous commit |
+
+## Examples
+
+### Feature
+```
+feat(auth): add JWT token refresh
+
+Implement automatic token refresh 5 minutes before expiration.
+Stores refresh token in httpOnly cookie.
+
+Closes #123
+```
+
+### Bug Fix
+```
+fix(api): resolve race condition in order processing
+
+Add mutex lock to prevent concurrent order modifications.
+Fixes intermittent 500 errors on checkout.
+```
+
+### Refactor
+```
+refactor(user-service): extract validation logic
+
+Move validation to separate module for reuse.
+No behavior changes.
+```
+
+## Rules
+
+- Subject line: max 50 characters
+- Body: wrap at 72 characters
+- Use imperative mood ("add" not "added")
+- No period at end of subject
+- Reference issues: `Closes #123`, `Fixes #456`

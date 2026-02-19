@@ -1,0 +1,86 @@
+---
+description: Security best practices for all code
+globs:
+alwaysApply: true
+---
+
+# Security Standards
+
+## Never Commit These
+
+- API keys
+- Passwords
+- Private keys
+- Database credentials
+- `.env` files
+- Tokens/secrets
+- SSL certificates
+
+## Input Validation
+
+Always validate:
+- Type and format
+- Length limits
+- Allowed characters
+- Required fields
+- Range constraints
+
+```typescript
+// Use schema validation
+const schema = z.object({
+  email: z.string().email(),
+  age: z.number().int().min(0).max(150),
+});
+```
+
+## Authentication
+
+- Use established libraries (Passport, Auth0, NextAuth)
+- Hash passwords with bcrypt or argon2
+- JWT with short expiration (15-60 min)
+- Refresh token rotation
+- Rate limit auth endpoints
+
+## Secrets Management
+
+```typescript
+// ✅ Use environment variables
+const apiKey = process.env.API_KEY;
+const dbUrl = process.env.DATABASE_URL;
+
+// ❌ Never hardcode
+const apiKey = 'sk-1234567890';
+const password = 'admin123';
+```
+
+## Common Vulnerabilities
+
+### SQL Injection
+```typescript
+// ❌ Vulnerable
+db.query(`SELECT * FROM users WHERE id = ${id}`);
+
+// ✅ Parameterized
+db.query('SELECT * FROM users WHERE id = ?', [id]);
+```
+
+### XSS
+```typescript
+// ❌ Dangerous
+element.innerHTML = userInput;
+
+// ✅ Safe
+element.textContent = userInput;
+```
+
+## Security Headers
+
+```typescript
+// Use helmet or set manually
+app.use(helmet());
+
+// Or manual
+res.setHeader('X-Content-Type-Options', 'nosniff');
+res.setHeader('X-Frame-Options', 'DENY');
+res.setHeader('Strict-Transport-Security', 'max-age=31536000');
+```
