@@ -1,3 +1,7 @@
 {
-  "outputDirectory": "apps/web/.next"
+  "outputDirectory": "apps/web/.next",
+  "env": {
+    "NEXT_TELEMETRY_DISABLED": "1",
+    "NEXT_PRIVATE_SKIP_TURBOPACK": "1"
+  }
 }
