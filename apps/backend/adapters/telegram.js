@@ -9,6 +9,12 @@ const PROXYOS_BACKEND_URL = process.env.PROXYOS_BACKEND_URL || 'https://taz7770-
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 
+const TELEGRAM_RATE_LIMIT = parseInt(process.env.TELEGRAM_RATE_LIMIT || '20');
+const TELEGRAM_GROUPS_ENABLED = process.env.TELEGRAM_GROUPS_ENABLED === 'true';
+const TELEGRAM_GROUP_MENTION_ONLY = process.env.TELEGRAM_GROUP_MENTION_ONLY === 'true';
+const TELEGRAM_ALLOWED_USERS = (process.env.TELEGRAM_ALLOWED_USERS || '').split(',').filter(id => id.trim()).map(id => id.trim());
+const TELEGRAM_ADMIN_USERS = (process.env.TELEGRAM_ADMIN_USERS || '').split(',').filter(id => id.trim()).map(id => id.trim());
+
 if (!TELEGRAM_BOT_TOKEN) {
   console.error('[Telegram Adapter] TELEGRAM_BOT_TOKEN is required');
   process.exit(1);
@@ -19,10 +25,18 @@ const bot = new Bot(TELEGRAM_BOT_TOKEN);
 
 const pendingContexts = new Map();
 const userProviders = new Map();
+const userContexts = new Map();
+const userMessageCounts = new Map();
 
-async function sendToProxyOS(rawInput, channelUserId, chatId, threadTs = null) {
-  const selectedProvider = userProviders.get(String(chatId));
-  
+setInterval(() => {
+  userMessageCounts.clear();
+}, 60000);
+
+function isAdmin(userId) {
+  return TELEGRAM_ADMIN_USERS.includes(String(userId));
+}
+
+async function sendToProxyOS(rawInput, channelUserId, chatId, threadTs = null, selectedProvider = null) {
   const replyMetadata = {
     chat_id: chatId
   };
@@ -85,15 +99,60 @@ bot.on('message:text', async (ctx) => {
   const chatId = ctx.chat?.id;
   const threadTs = ctx.message?.message_thread_id;
   const text = ctx.message?.text;
+  const userIdStr = String(userId);
 
   if (!userId || !chatId || !text) return;
+
+  // Check allowed users
+  if (TELEGRAM_ALLOWED_USERS.length > 0 && !TELEGRAM_ALLOWED_USERS.includes(userIdStr)) {
+    console.log(`[Telegram Adapter] Unauthorized user: ${userId}`);
+    return;
+  }
+
+  // Rate limiting
+  const now = Date.now();
+  let userData = userMessageCounts.get(userIdStr) || { count: 0, resetTime: now + 60000 };
+  
+  if (now > userData.resetTime) {
+    userData = { count: 0, resetTime: now + 60000 };
+  }
+  
+  userData.count++;
+  userMessageCounts.set(userIdStr, userData);
+  
+  if (userData.count > TELEGRAM_RATE_LIMIT) {
+    await ctx.reply('⚠️ Rate limit exceeded. Please wait a moment.');
+    return;
+  }
+
+  // Group chat handling
+  const isGroup = ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
+  
+  if (isGroup) {
+    if (!TELEGRAM_GROUPS_ENABLED) {
+      return;
+    }
+    
+    if (TELEGRAM_GROUP_MENTION_ONLY) {
+      const botUsername = (await ctx.bot.api.getMe()).username;
+      const mention = `@${botUsername}`;
+      
+      if (!text.toLowerCase().includes(mention.toLowerCase())) {
+        return;
+      }
+    }
+  }
 
   if (text.startsWith('/')) return;
 
   try {
     await ctx.replyWithChatAction('typing');
 
-    const result = await sendToProxyOS(text, userId, chatId, threadTs);
+    const selectedProvider = userProviders.get(String(chatId));
+    const key = `${chatId}:${userId}`;
+    const userContext = userContexts.get(key);
+
+    const result = await sendToProxyOS(text, userId, chatId, threadTs, selectedProvider);
 
     if (!result.context_id) {
       await ctx.reply('Sorry, I could not process your request. Please try again.');
@@ -129,23 +188,33 @@ bot.on('message:text', async (ctx) => {
 
 bot.command('start', async (ctx) => {
   await ctx.reply(
-    'Hello! I\'m your ProxyOS assistant.\n\n' +
+    '👋 Hello! I\'m your ProxyOS assistant.\n\n' +
     'Send me any message and I\'ll delegate it to my AI agents (Minion, Scout, Sage) ' +
     'to research, code, analyze, or strategize for you.\n\n' +
     'Commands:\n' +
     '/start - Show this message\n' +
-    '/help - Get help'
+    '/help - Get help\n' +
+    '/provider - Set LLM provider\n' +
+    '/providers - Show provider status\n' +
+    '/reset - Clear conversation history\n' +
+    '/settings - Show your settings'
   );
 });
 
 bot.command('help', async (ctx) => {
   await ctx.reply(
-    'ProxyOS AI Office Assistant\n\n' +
+    '🤖 ProxyOS AI Office Assistant\n\n' +
     'I have three specialized agents:\n\n' +
     '• Minion: Coding, deployment, APIs, GitHub\n' +
     '• Scout: Research, market analysis, finding info\n' +
     '• Sage: Strategy, QA, reviews, validation\n\n' +
-    'Just send me a message describing what you need, and I\'ll route it to the right agent(s).'
+    'Available providers:\n' +
+    '• nvidia - NVIDIA GLM-5 (fast, recommended)\n' +
+    '• groq - Groq Llama (fast, free tier)\n' +
+    '• zai - Z.ai GLM-4 (free)\n' +
+    '• opencode - OpenCode (experimental)\n' +
+    '• openrouter - OpenRouter (multi-model)\n\n' +
+    'Just send me a message describing what you need!'
   );
 });
 
@@ -198,6 +267,54 @@ bot.command('providers', async (ctx) => {
   } catch (error) {
     await ctx.reply('Could not fetch provider status. Try again later.');
   }
+});
+
+bot.command('reset', async (ctx) => {
+  const userId = String(ctx.from?.id);
+  const chatId = String(ctx.chat.id);
+  const key = `${chatId}:${userId}`;
+  
+  // Clear from in-memory storage
+  userContexts.delete(key);
+  userProviders.delete(chatId);
+  
+  // Try to clear from Supabase if table exists
+  if (supabase) {
+    try {
+      await supabase
+        .from('user_contexts')
+        .delete()
+        .eq('user_id', key);
+    } catch (e) {
+      // Table might not exist, ignore
+    }
+  }
+  
+  await ctx.reply('✅ Conversation history cleared. Starting fresh!');
+});
+
+bot.command('settings', async (ctx) => {
+  const userId = String(ctx.from?.id);
+  const chatId = String(ctx.chat.id);
+  const key = `${chatId}:${userId}`;
+  
+  const currentProvider = userProviders.get(chatId) || 'nvidia';
+  const context = userContexts.get(key);
+  const messageCount = context?.messages?.length || 0;
+  
+  await ctx.reply(
+    `⚙️ *Your Settings*\n\n` +
+    `Provider: \`${currentProvider}\`\n` +
+    `Messages in context: ${messageCount}\n\n` +
+    `Available providers:\n` +
+    `• nvidia - Fast, recommended\n` +
+    `• groq - Fast, free tier\n` +
+    `• zai - Free\n` +
+    `• opencode - Experimental\n` +
+    `• openrouter - Multi-model\n\n` +
+    `Change with: /provider <name>`,
+    { parse_mode: 'Markdown' }
+  );
 });
 
 bot.catch((err) => {
