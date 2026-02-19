@@ -83,7 +83,7 @@ async function callBonsaiAPI(systemContent, userContent) {
   }
   messages.push({ role: 'user', content: userContent });
 
-  const response = await fetch('https://go.trybons.ai/v1/chat/completions', {
+  const response = await fetch('https://go.trybons.ai/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
