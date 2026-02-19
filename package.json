@@ -6,14 +6,19 @@
     "apps/*"
   ],
   "scripts": {
-    "build:shared": "npm run build --workspace=@proxyos/shared",
-    "build:web": "npm run build --workspace=web",
-    "build": "npm run build:shared && npm run build:web"
-  },
-  "devDependencies": {
-    "typescript": "^5.0.0"
+    "build": "npm run build --workspace=@proxyos/shared && npm run build --workspace=web",
+    "dev": "cd apps/web && npm run dev",
+    "lint": "cd apps/web && npm run lint"
   },
   "dependencies": {
-    "next": "16.1.6"
+    "next": "16.1.6",
+    "react": "19.2.3",
+    "react-dom": "19.2.3"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "typescript": "^5"
   }
 }
