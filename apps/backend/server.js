@@ -9,6 +9,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { Groq } from 'groq-sdk';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { ProviderFailoverManager } from './providers/failover-manager.js';
+import { checkAllProviders } from './providers/provider-checks.js';
 
 const cache = new nodeCache({ stdTTL: 300 });
 
@@ -22,6 +24,106 @@ app.use(cors());
 app.use(express.json({ limit: '2mb' }));
 
 const PORT = process.env.PORT || 7860;
+
+// --- Provider Failover Manager ---
+const llmFailover = new ProviderFailoverManager();
+
+// --- In-Memory Context Storage (use Redis in production) ---
+const userContexts = new Map();
+
+function saveContext(userId, context) {
+  userContexts.set(userId, {
+    ...context,
+    updatedAt: new Date().toISOString()
+  });
+}
+
+function getContext(userId) {
+  return userContexts.get(userId) || { messages: [], provider: 'nvidia' };
+}
+
+function clearContext(userId) {
+  userContexts.delete(userId);
+}
+
+// --- OpenClaw Cloud Fallback ---
+const OPENCLOUD_API_URL = process.env.OPENCLOUD_API_URL || 'https://taz7770-proxyos-openclaw.hf.space/api/agent';
+
+async function callOpenCloudAPI(message, context = []) {
+  const response = await fetch(OPENCLOUD_API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ 
+      message,
+      context: context.slice(-10)
+    })
+  });
+  
+  if (!response.ok) {
+    throw new Error(`OpenClaw cloud error: ${response.status}`);
+  }
+  
+  return response.json();
+}
+
+// --- Unified LLM Call with Failover ---
+async function unifiedLLMCall(message, preferredProvider = null, contextMessages = []) {
+  const providers = ['nvidia', 'groq', 'zai', 'opencode', 'openrouter'];
+  const systemPrompt = contextMessages.slice(-10).map(m => `${m.role}: ${m.content}`).join('\n');
+  
+  // Try local providers first
+  for (const provider of providers) {
+    if (preferredProvider && provider !== preferredProvider) continue;
+    
+    try {
+      let result;
+      switch (provider) {
+        case 'nvidia':
+          if (nvidiaApiKey) result = await callNvidiaAPI(systemPrompt, message);
+          break;
+        case 'groq':
+          if (groq) {
+            const completion = await groq.chat.completions.create({
+              messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: message }
+              ],
+              model: 'llama-3.3-70b-versatile',
+              temperature: 0.3,
+              max_tokens: 2048
+            });
+            result = completion.choices[0].message.content;
+          }
+          break;
+        case 'zai':
+          if (zaiApiKey) result = await callZaiAPI(systemPrompt, message);
+          break;
+        case 'opencode':
+          if (opencodeApiKey) result = await callOpenCodeAPI(systemPrompt, message);
+          break;
+        case 'openrouter':
+          if (openrouterApiKey) result = await callOpenRouterAPI(systemPrompt, message);
+          break;
+      }
+      
+      if (result) {
+        console.log(`[ProxyOS] LLM call succeeded with provider: ${provider}`);
+        return { response: result, provider };
+      }
+    } catch (e) {
+      console.error(`[ProxyOS] Provider ${provider} failed:`, e.message);
+    }
+  }
+  
+  // Fallback to OpenClaw cloud
+  console.log('[ProxyOS] Falling back to OpenClaw cloud...');
+  try {
+    return await callOpenCloudAPI(message, contextMessages);
+  } catch (cloudError) {
+    console.error('[ProxyOS] OpenClaw cloud failed:', cloudError.message);
+    throw new Error('All LLM providers failed');
+  }
+}
 
 // --- Supabase client --------------------------------------------------------
 
@@ -670,15 +772,60 @@ app.get('/health', async (_req, res) => {
 });
 
 app.get('/api/providers', (_req, res) => {
+  const githubCopilotKey = process.env.GITHUB_COPILOT_TOKEN;
+  const providerStatus = llmFailover.getProviderStatus();
+  
   res.json({
-    providers: [
-      { name: 'nvidia', healthy: !!nvidiaApiKey, enabled: true, priority: 1, circuitBreaker: { state: 'closed' } },
-      { name: 'groq', healthy: !!groqApiKey, enabled: true, priority: 2, circuitBreaker: { state: 'closed' } },
-      { name: 'zai', healthy: !!zaiApiKey, enabled: true, priority: 3, circuitBreaker: { state: 'closed' } },
-      { name: 'opencode', healthy: !!opencodeApiKey, enabled: true, priority: 4, circuitBreaker: { state: 'closed' } },
-      { name: 'openrouter', healthy: !!openrouterApiKey, enabled: true, priority: 5, circuitBreaker: { state: 'closed' } }
-    ]
+    providers: providerStatus.map(p => ({
+      ...p,
+      model: p.name === 'nvidia' ? 'nvidia/llama-3.1-nemotron-70b-instruct' :
+             p.name === 'groq' ? 'llama-3.3-70b-versatile' :
+             p.name === 'zai' ? 'GLM-4.7-Flash' :
+             p.name === 'opencode' ? 'opencode/default' :
+             p.name === 'openrouter' ? 'anthropic/claude-3.5-sonnet' : 'gpt-4o'
+    })),
+    fallback: {
+      url: OPENCLOUD_API_URL,
+      enabled: true
+    },
+    config_source: 'unified-llm-router',
+    failover_manager: {
+      current_provider: llmFailover.currentProvider,
+      initialized: true
+    }
   });
+});
+
+app.get('/api/providers/health', async (_req, res) => {
+  try {
+    const healthResults = await checkAllProviders();
+    res.json({
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      providers: healthResults
+    });
+  } catch (err) {
+    res.status(500).json({ status: 'error', error: err.message });
+  }
+});
+
+app.post('/api/llm', async (req, res) => {
+  const { message, provider, context } = req.body ?? {};
+  
+  if (!message) {
+    return res.status(400).json({ status: 'error', message: 'message is required' });
+  }
+
+  try {
+    const contextMessages = Array.isArray(context) ? context : [];
+    const result = await unifiedLLMCall(message, provider, contextMessages);
+    res.json({
+      status: 'success',
+      ...result
+    });
+  } catch (err) {
+    res.status(500).json({ status: 'error', message: err.message });
+  }
 });
 
 app.post('/api/feed-context', async (req, res) => {
@@ -899,7 +1046,8 @@ app.post('/api/inbound-message', async (req, res) => {
     reply_metadata = {},
     project_tag,
     idempotency_key,
-    provider
+    provider,
+    enable_context = true
   } = req.body ?? {};
 
   const selectedProvider = provider || 'nvidia';
@@ -917,6 +1065,21 @@ app.post('/api/inbound-message', async (req, res) => {
   }
 
   try {
+    // Get existing context for this user
+    const userContext = getContext(channel_user_id);
+    
+    // Add user's message to context
+    if (enable_context) {
+      userContext.messages.push({ role: 'user', content: raw_input });
+      
+      // Keep only last 20 messages for context window
+      if (userContext.messages.length > 20) {
+        userContext.messages = userContext.messages.slice(-20);
+      }
+      userContext.provider = selectedProvider;
+    }
+
+    // Check for idempotency
     if (idempotency_key) {
       const { data: existing } = await supabase
         .from('proxy_context')
@@ -980,16 +1143,62 @@ app.post('/api/inbound-message', async (req, res) => {
       console.error('[ProxyOS backend] Failed to create delivery row:', deliveryError.message);
     }
 
+    // If context enabled, call LLM with context
+    let llmResponse = null;
+    if (enable_context && userContext.messages.length > 0) {
+      try {
+        const contextContent = userContext.messages.map(m => m.content).join('\n');
+        llmResponse = await unifiedLLMCall(raw_input, selectedProvider, userContext.messages);
+        
+        // Save LLM response to context
+        if (llmResponse && llmResponse.response) {
+          userContext.messages.push({ role: 'assistant', content: llmResponse.response });
+          
+          // Keep context manageable
+          if (userContext.messages.length > 20) {
+            userContext.messages = userContext.messages.slice(-20);
+          }
+        }
+      } catch (llmError) {
+        console.error('[ProxyOS] LLM call failed:', llmError.message);
+      }
+    }
+
+    // Save updated context
+    saveContext(channel_user_id, userContext);
+
     const delegation = await analyzeAndDelegate(raw_input, contextRow.id, project_tag);
 
     return res.json({
       status: 'success',
       context_id: contextRow.id,
-      delegation
+      delegation,
+      llm_response: llmResponse ? llmResponse.response : null,
+      provider: llmResponse ? llmResponse.provider : null
     });
   } catch (err) {
     return res.status(500).json({ status: 'error', message: err.message });
   }
+});
+
+// --- Context Management Endpoints ---
+
+app.get('/api/user-context/:userId', (req, res) => {
+  const { userId } = req.params;
+  const context = getContext(userId);
+  res.json({
+    user_id: userId,
+    message_count: context.messages.length,
+    provider: context.provider,
+    updated_at: context.updatedAt,
+    messages: context.messages.slice(-5) // Last 5 messages for preview
+  });
+});
+
+app.delete('/api/user-context/:userId', (req, res) => {
+  const { userId } = req.params;
+  clearContext(userId);
+  res.json({ status: 'success', message: `Context cleared for user ${userId}` });
 });
 
 app.get('/api/context/:id/status', async (req, res) => {
