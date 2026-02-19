@@ -9,5 +9,8 @@
     "build:shared": "npm run build --workspace=@proxyos/shared",
     "build:web": "npm run build --workspace=web",
     "build": "npm run build:shared && npm run build:web"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
   }
 }
