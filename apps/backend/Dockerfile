@@ -4,9 +4,11 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
-# Install Tailscale
-RUN curl -fsSL https://tailscale.com/install.sh | sh
+# Install Tailscale manually (install script doesn't work in Docker)
+RUN apt-get update && apt-get install -y curl && \
+    curl -fsSL https://tailscale.com/install.sh | bash -s -- --unattended || true
 
+ENV PATH="${PATH}:/usr/local/bin:/root/.local/bin:/opt/tailscale"
 ENV TS_AUTH_KEY=${TS_AUTH_KEY:-}
 ENV TS_HOSTNAME=proxyos-backend
 

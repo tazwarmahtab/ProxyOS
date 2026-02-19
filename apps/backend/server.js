@@ -1427,6 +1427,11 @@ async function startTailscale() {
     console.log('🔄 Starting Tailscale...');
     const { exec } = await import('child_process');
     
+    // Debug: check where tailscale is
+    exec('which tailscale || find /usr -name tailscale 2>/dev/null || find /opt -name tailscale 2>/dev/null || echo "tailscale not found"', (err, whichOut) => {
+      console.log('🔍 Tailscale location:', whichOut.trim() || 'not found');
+    });
+    
     await new Promise((resolve, reject) => {
       exec(`tailscale up --authkey=${tsAuthKey} --hostname=${tsHostname}`, (error, stdout, stderr) => {
         if (error) {
