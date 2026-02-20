@@ -12,6 +12,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { ProviderFailoverManager } from './providers/failover-manager.js';
 import { checkAllProviders } from './providers/provider-checks.js';
 import { callAnthropicAPI } from './providers/anthropic-client.js';
+import { callGitHubCopilotAPI } from './providers/github-copilot-client.js';
 import { redisClient } from './lib/redis.js';
 
 const cache = new nodeCache({ stdTTL: 300 });
@@ -65,7 +66,7 @@ async function callOpenCloudAPI(message, context = []) {
 
 // --- Unified LLM Call with Failover ---
 async function unifiedLLMCall(message, preferredProvider = null, contextMessages = []) {
-  const providers = ['nvidia', 'groq', 'zai', 'opencode', 'openrouter', 'anthropic'];
+  const providers = ['nvidia', 'groq', 'zai', 'github-copilot', 'opencode', 'openrouter', 'anthropic'];
   const systemPrompt = contextMessages.slice(-10).map(m => `${m.role}: ${m.content}`).join('\n');
   
   // Try local providers first
@@ -100,6 +101,9 @@ async function unifiedLLMCall(message, preferredProvider = null, contextMessages
           break;
         case 'openrouter':
           if (openrouterApiKey) result = await callOpenRouterAPI(systemPrompt, message);
+          break;
+        case 'github-copilot':
+          if (githubCopilotToken) result = await callGitHubCopilotAPI(systemPrompt, message);
           break;
         case 'anthropic':
           if (anthropicApiKey) result = await callAnthropicAPI(systemPrompt, message);
@@ -148,6 +152,7 @@ const opencodeApiKey = process.env.OPENCODE_API_KEY;
 const openrouterApiKey = process.env.OPENROUTER_API_KEY;
 const zaiApiKey = process.env.ZAI_API_KEY;
 const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
+const githubCopilotToken = process.env.GITHUB_COPILOT_TOKEN;
 const llmProvider = process.env.LLM_PROVIDER || 'nvidia';
 const nvidiaModel = process.env.NVIDIA_MODEL || 'z-ai/glm5';
 

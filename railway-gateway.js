@@ -28,8 +28,8 @@ const app = express();
 app.use(express.json());
 
 // Get config from environment or fallback to Railway vars
-const PORT = process.env.PORT || 7860;
-const PROXYOS_BACKEND_URL = process.env.PROXYOS_BACKEND_URL || process.env.BACKEND_URL || 'https://taz7770-proxyos-backend.hf.space';
+const PORT = process.env.PORT || 18789;
+const PROXYOS_BACKEND_URL = process.env.PROXYOS_BACKEND_URL || process.env.BACKEND_URL || 'http://localhost:7860';
 const PROXYOS_OPENCLAW_URL = process.env.PROXYOS_OPENCLAW_URL || process.env.OPENCLAW_URL || 'https://taz7770-proxyos-openclaw.hf.space';
 const PROXYOS_API_KEY = process.env.PROXYOS_API_KEY || 'getthehellouttahere';
 

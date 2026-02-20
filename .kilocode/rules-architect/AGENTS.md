@@ -19,8 +19,10 @@ flowchart TD
         NV[NVIDIA]
         GR[Groq]
         ZA[Z.ai]
+        GC[GitHub Copilot]
         OC[OpenCode]
         OR[OpenRouter]
+        AN[Anthropic (Claude)]
     end
     
     subgraph Fallback
@@ -38,9 +40,11 @@ flowchart TD
     FO --> NV
     NV -->|fail| GR
     GR -->|fail| ZA
-    ZA -->|fail| OC
+    ZA -->|fail| GC
+    GC -->|fail| OC
     OC -->|fail| OR
-    OR -->|fail| OCF
+    OR -->|fail| AN
+    AN -->|fail| OCF
     API --> SB
 ```
 

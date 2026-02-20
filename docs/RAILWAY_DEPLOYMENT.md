@@ -37,6 +37,11 @@ PROXYOS_API_KEY=getthehellouttahere
 BONSAI_API_KEY=your_bonsai_api_key
 NVIDIA_API_KEY=your_nvidia_api_key
 GROQ_API_KEY=your_groq_api_key
+GITHUB_COPILOT_TOKEN=your_github_copilot_token
+ANTHROPIC_API_KEY=your_anthropic_api_key
+ZAI_API_KEY=your_zai_api_key
+OPENCODE_API_KEY=your_opencode_api_key
+OPENROUTER_API_KEY=your_openrouter_api_key
 
 # Database (get from Supabase)
 SUPABASE_URL=your_supabase_url

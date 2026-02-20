@@ -38,8 +38,10 @@ SUPABASE_SERVICE_KEY
 NVIDIA_API_KEY (primary provider)
 GROQ_API_KEY (fallback)
 ZAI_API_KEY (fallback)
+GITHUB_COPILOT_API_KEY (fallback)
 OPENCODE_API_KEY (fallback)
 OPENROUTER_API_KEY (fallback)
+ANTHROPIC_API_KEY (Claude fallback)
 PORT=7860
 ```
 
