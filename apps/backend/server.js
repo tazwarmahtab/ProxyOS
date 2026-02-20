@@ -13,6 +13,8 @@ import { checkAllProviders } from './providers/provider-checks.js';
 import { callAnthropicAPI } from './providers/anthropic-client.js';
 import { callGitHubCopilotAPI } from './providers/github-copilot-client.js';
 import { redisClient } from './lib/redis.js';
+import { triageWithLLM, keywordFallback } from './agents/triage.js';
+import { loadSpecialization } from './agents/specializations.js';
 
 dotenv.config();
 
@@ -423,6 +425,7 @@ class AgentMinion {
       const dir = path.join(__dirname, 'agents', 'minion');
       const soul = await fs.readFile(path.join(dir, 'soul.md'), 'utf8');
       const memory = await fs.readFile(path.join(dir, 'memory.md'), 'utf8');
+      const specialization = await loadSpecialization('minion', task.lane_id);
 
       const prompt = `
 TASK: ${task.task_description}
@@ -434,7 +437,11 @@ Return only:
 - Deployment notes
 Do not include conversational filler.`;
 
-      const output = await routeToLLM(this.role, prompt, `${soul}\n\n${memory}`, 'code', provider);
+      const systemContext = specialization
+        ? `${soul}\n\n${specialization}\n\n${memory}`
+        : `${soul}\n\n${memory}`;
+      const taskType = task.task_type || 'code';
+      const output = await routeToLLM(this.role, prompt, systemContext, taskType, provider);
 
       const newMemory =
         memory +
@@ -480,6 +487,7 @@ class AgentScout {
       const dir = path.join(__dirname, 'agents', 'scout');
       const soul = await fs.readFile(path.join(dir, 'soul.md'), 'utf8');
       const memory = await fs.readFile(path.join(dir, 'memory.md'), 'utf8');
+      const specialization = await loadSpecialization('scout', task.lane_id);
 
       const prompt = `
 RESEARCH TASK: ${task.task_description}
@@ -490,7 +498,11 @@ Return structured findings:
 - Citations / URLs (plain text)
 `;
 
-      const output = await routeToLLM(this.role, prompt, `${soul}\n\n${memory}`, 'research', provider);
+      const systemContext = specialization
+        ? `${soul}\n\n${specialization}\n\n${memory}`
+        : `${soul}\n\n${memory}`;
+      const taskType = task.task_type || 'research';
+      const output = await routeToLLM(this.role, prompt, systemContext, taskType, provider);
 
       const newMemory =
         memory +
@@ -536,6 +548,7 @@ class AgentSage {
       const dir = path.join(__dirname, 'agents', 'sage');
       const soul = await fs.readFile(path.join(dir, 'soul.md'), 'utf8');
       const memory = await fs.readFile(path.join(dir, 'memory.md'), 'utf8');
+      const specialization = await loadSpecialization('sage', task.lane_id);
 
       const ctx = [];
       if (task.context_id) {
@@ -560,7 +573,11 @@ Respond with:
 - Any cross-country / scaling considerations
 `;
 
-      const output = await routeToLLM(this.role, prompt, `${soul}\n\n${memory}`, 'strategy', provider);
+      const systemContext = specialization
+        ? `${soul}\n\n${specialization}\n\n${memory}`
+        : `${soul}\n\n${memory}`;
+      const taskType = task.task_type || 'strategy';
+      const output = await routeToLLM(this.role, prompt, systemContext, taskType, provider);
 
       const verdict = output.includes('PASS') ? 'PASS' : 'NEEDS_WORK';
       const newMemory =
@@ -837,94 +854,35 @@ app.post('/api/feed-context', async (req, res) => {
 });
 
 async function analyzeAndDelegate(raw_input, contextId, projectTag) {
-  const input = raw_input.toLowerCase();
+  let triageResult;
+
+  // Try LLM-powered triage first, fall back to keyword matching
+  try {
+    triageResult = await triageWithLLM(raw_input, callProvider);
+    console.log(`[ProxyOS] LLM triage completed: ${triageResult.delegations.length} delegation(s)`);
+  } catch (err) {
+    console.log(`[ProxyOS] LLM triage failed (${err.message}), using keyword fallback`);
+    triageResult = keywordFallback(raw_input);
+  }
+
   const delegations = [];
 
-  // Minion
-  if (
-    input.includes('code') ||
-    input.includes('deploy') ||
-    input.includes('github') ||
-    input.includes('schema') ||
-    input.includes('api')
-  ) {
+  for (const d of triageResult.delegations) {
     const { data } = await supabase
       .from('agent_tasks')
       .insert({
         context_id: contextId,
-        agent_role: 'minion',
-        task_description: raw_input,
-        task_type: 'code',
+        agent_role: d.agent,
+        task_description: d.task_description,
+        task_type: d.task_type,
         project_tag: projectTag,
-        priority: 8
+        priority: d.priority,
+        lane_id: d.specialization
       })
       .select()
       .single();
-    if (data) delegations.push({ agent: 'minion', task_id: data.id });
-  }
 
-  // Scout
-  if (
-    input.includes('research') ||
-    input.includes('find') ||
-    input.includes('scrape') ||
-    input.includes('supplier') ||
-    input.includes('market') ||
-    input.includes('competitor')
-  ) {
-    const { data } = await supabase
-      .from('agent_tasks')
-      .insert({
-        context_id: contextId,
-        agent_role: 'scout',
-        task_description: raw_input,
-        task_type: 'research',
-        project_tag: projectTag,
-        priority: 7
-      })
-      .select()
-      .single();
-    if (data) delegations.push({ agent: 'scout', task_id: data.id });
-  }
-
-  // Sage
-  if (
-    input.includes('review') ||
-    input.includes('strategy') ||
-    input.includes('qa') ||
-    input.includes('polish') ||
-    input.includes('analyze') ||
-    input.includes('validate')
-  ) {
-    const { data } = await supabase
-      .from('agent_tasks')
-      .insert({
-        context_id: contextId,
-        agent_role: 'sage',
-        task_description: raw_input,
-        task_type: 'strategy',
-        project_tag: projectTag,
-        priority: 9
-      })
-      .select()
-      .single();
-    if (data) delegations.push({ agent: 'sage', task_id: data.id });
-  }
-
-  if (delegations.length === 0) {
-    const { data } = await supabase
-      .from('agent_tasks')
-      .insert({
-        context_id: contextId,
-        agent_role: 'scout',
-        task_description: `Research and analyze: ${raw_input}`,
-        task_type: 'research',
-        project_tag: projectTag,
-        priority: 5
-      })
-      .select()
-      .single();
-    if (data) delegations.push({ agent: 'scout', task_id: data.id });
+    if (data) delegations.push({ agent: d.agent, task_id: data.id, specialization: d.specialization });
   }
 
   return delegations;
