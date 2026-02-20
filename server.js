@@ -1317,9 +1317,9 @@ app.post("/api/inbound-message", async (req, res) => {
         metadata,
         energy_gained: energyGained,
       })
-      .select()
       .single();
 
+    console.log(`[Webhook Debug] Context Row Created: ${contextRow?.id || "FAILED"}, Error: ${ctxError?.message || "None"}`);
     if (ctxError) throw ctxError;
 
     try {
@@ -1354,6 +1354,7 @@ app.post("/api/inbound-message", async (req, res) => {
           selectedProvider,
           userContext.messages,
         );
+        console.log(`[Webhook Debug] LLM Response: ${llmResponse ? "SUCCESS" : "EMPTY"}`);
 
         if (llmResponse && llmResponse.response) {
           userContext.messages.push({
@@ -1385,6 +1386,7 @@ app.post("/api/inbound-message", async (req, res) => {
         const telegramBot = new Bot(TELEGRAM_BOT_TOKEN);
         const chatId = reply_metadata.chat_id || channel_user_id;
         const threadTs = reply_metadata.thread_ts;
+        console.log(`[Webhook Debug] Sending reply to Telegram Chat: ${chatId}, Msg Length: ${llmResponse.response.length}`);
         
         const replyOptions = {};
         if (threadTs) {
@@ -1964,7 +1966,7 @@ function startTelegramBot() {
   });
 
   bot.api.getMe().then((me) => {
-    console.log(`[Telegram Bot] Verified successfully as @${me.username}`);
+    console.log(`[Telegram Bot] Verified successfully as @${me.username} (ID: ${me.id})`);
     bot.start({
       onStart: () => {
         console.log(`[Telegram Bot] Polling started reliably`);
