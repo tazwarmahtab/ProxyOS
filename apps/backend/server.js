@@ -3,7 +3,6 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
 import nodeCron from 'node-cron';
-import nodeCache from 'node-cache';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -14,8 +13,6 @@ import { checkAllProviders } from './providers/provider-checks.js';
 import { callAnthropicAPI } from './providers/anthropic-client.js';
 import { callGitHubCopilotAPI } from './providers/github-copilot-client.js';
 import { redisClient } from './lib/redis.js';
-
-const cache = new nodeCache({ stdTTL: 300 });
 
 dotenv.config();
 
@@ -64,68 +61,85 @@ async function callOpenCloudAPI(message, context = []) {
   return response.json();
 }
 
+// --- Shared provider call helper ---
+async function callProvider(providerName, systemContent, userContent) {
+  switch (providerName) {
+    case 'nvidia':
+      if (!nvidiaApiKey) throw new Error('NVIDIA_API_KEY not configured');
+      return await callNvidiaAPI(systemContent, userContent);
+    case 'groq':
+      if (!groq) throw new Error('GROQ_API_KEY not configured');
+      const completion = await groq.chat.completions.create({
+        messages: [
+          { role: 'system', content: systemContent || '' },
+          { role: 'user', content: userContent }
+        ],
+        model: 'llama-3.3-70b-versatile',
+        temperature: 0.3,
+        max_tokens: 2048
+      });
+      return completion.choices[0].message.content;
+    case 'bonsai':
+      if (!bonsaiApiKey) throw new Error('BONSAI_API_KEY not configured');
+      return await callBonsaiAPI(systemContent, userContent);
+    case 'zai':
+      if (!zaiApiKey) throw new Error('ZAI_API_KEY not configured');
+      return await callZaiAPI(systemContent, userContent);
+    case 'github-copilot':
+      if (!githubCopilotToken) throw new Error('GITHUB_COPILOT_TOKEN not configured');
+      return await callGitHubCopilotAPI(systemContent, userContent);
+    case 'opencode':
+      if (!opencodeApiKey) throw new Error('OPENCODE_API_KEY not configured');
+      return await callOpenCodeAPI(systemContent, userContent);
+    case 'openrouter':
+      if (!openrouterApiKey) throw new Error('OPENROUTER_API_KEY not configured');
+      return await callOpenRouterAPI(systemContent, userContent);
+    case 'anthropic':
+      if (!anthropicApiKey) throw new Error('ANTHROPIC_API_KEY not configured');
+      return await callAnthropicAPI(systemContent, userContent);
+    default:
+      throw new Error(`Unknown provider: ${providerName}`);
+  }
+}
+
 // --- Unified LLM Call with Failover ---
 async function unifiedLLMCall(message, preferredProvider = null, contextMessages = []) {
-  const providers = ['nvidia', 'groq', 'zai', 'github-copilot', 'opencode', 'openrouter', 'anthropic'];
   const systemPrompt = contextMessages.slice(-10).map(m => `${m.role}: ${m.content}`).join('\n');
-  
-  // Try local providers first
-  for (const provider of providers) {
-    if (preferredProvider && provider !== preferredProvider) continue;
-    
+
+  // If a preferred provider is specified, try it first
+  if (preferredProvider) {
     try {
-      let result;
-      switch (provider) {
-        case 'nvidia':
-          if (nvidiaApiKey) result = await callNvidiaAPI(systemPrompt, message);
-          break;
-        case 'groq':
-          if (groq) {
-            const completion = await groq.chat.completions.create({
-              messages: [
-                { role: 'system', content: systemPrompt },
-                { role: 'user', content: message }
-              ],
-              model: 'llama-3.3-70b-versatile',
-              temperature: 0.3,
-              max_tokens: 2048
-            });
-            result = completion.choices[0].message.content;
-          }
-          break;
-        case 'zai':
-          if (zaiApiKey) result = await callZaiAPI(systemPrompt, message);
-          break;
-        case 'opencode':
-          if (opencodeApiKey) result = await callOpenCodeAPI(systemPrompt, message);
-          break;
-        case 'openrouter':
-          if (openrouterApiKey) result = await callOpenRouterAPI(systemPrompt, message);
-          break;
-        case 'github-copilot':
-          if (githubCopilotToken) result = await callGitHubCopilotAPI(systemPrompt, message);
-          break;
-        case 'anthropic':
-          if (anthropicApiKey) result = await callAnthropicAPI(systemPrompt, message);
-          break;
-      }
-      
+      const result = await callProvider(preferredProvider, systemPrompt, message);
       if (result) {
-        console.log(`[ProxyOS] LLM call succeeded with provider: ${provider}`);
-        return { response: result, provider };
+        console.log(`[ProxyOS] LLM call succeeded with preferred provider: ${preferredProvider}`);
+        llmFailover.recordSuccess(preferredProvider);
+        return { response: result, provider: preferredProvider };
       }
     } catch (e) {
-      console.error(`[ProxyOS] Provider ${provider} failed:`, e.message);
+      console.log(`[ProxyOS] Preferred provider ${preferredProvider} failed: ${e.message}, falling through to failover chain`);
+      llmFailover.recordFailure(preferredProvider);
     }
   }
-  
-  // Fallback to OpenClaw cloud
-  console.log('[ProxyOS] Falling back to OpenClaw cloud...');
+
+  // Use the ProviderFailoverManager for automatic failover with circuit breakers
   try {
-    return await callOpenCloudAPI(message, contextMessages);
+    const result = await llmFailover.executeWithFailover(async (providerName) => {
+      const output = await callProvider(providerName, systemPrompt, message);
+      return { response: output };
+    });
+    console.log(`[ProxyOS] LLM call succeeded with provider: ${result.provider}`);
+    return { response: result.response, provider: result.provider };
+  } catch (failoverError) {
+    console.log('[ProxyOS] All providers failed, falling back to OpenClaw cloud...');
+  }
+
+  // Final fallback to OpenClaw cloud
+  try {
+    const cloudResult = await callOpenCloudAPI(message, contextMessages);
+    return { response: cloudResult.response || cloudResult, provider: 'openclaw-cloud' };
   } catch (cloudError) {
     console.error('[ProxyOS] OpenClaw cloud failed:', cloudError.message);
-    throw new Error('All LLM providers failed');
+    throw new Error('All LLM providers failed including OpenClaw cloud fallback');
   }
 }
 
@@ -153,7 +167,6 @@ const openrouterApiKey = process.env.OPENROUTER_API_KEY;
 const zaiApiKey = process.env.ZAI_API_KEY;
 const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
 const githubCopilotToken = process.env.GITHUB_COPILOT_TOKEN;
-const llmProvider = process.env.LLM_PROVIDER || 'nvidia';
 const nvidiaModel = process.env.NVIDIA_MODEL || 'z-ai/glm5';
 
 const groq = groqApiKey ? new Groq({ apiKey: groqApiKey }) : null;
@@ -307,92 +320,35 @@ async function callOpenRouterAPI(systemContent, userContent) {
 }
 
 async function routeToLLM(agentRole, prompt, context, taskType, selectedProvider) {
-  const provider = selectedProvider || 'nvidia';
-  
-  switch (provider) {
-    case 'nvidia':
-      if (nvidiaApiKey) {
-        try {
-          return await callNvidiaAPI(context, prompt);
-        } catch (e) {
-          console.error('[ProxyOS] Nvidia API failed, trying fallback:', e.message);
-        }
-      }
-      break;
-    case 'groq':
-      if (groq) {
-        try {
-          const completion = await groq.chat.completions.create({
-            messages: [
-              { role: 'system', content: context ?? '' },
-              { role: 'user', content: prompt }
-            ],
-            model: 'llama-3.3-70b-versatile',
-            temperature: 0.3,
-            max_tokens: 2048
-          });
-          return completion.choices[0].message.content;
-        } catch (e) {
-          console.error('[ProxyOS] Groq API failed:', e.message);
-        }
-      }
-      break;
-    case 'opencode':
-      if (opencodeApiKey) {
-        try {
-          return await callOpenCodeAPI(context, prompt);
-        } catch (e) {
-          console.error('[ProxyOS] OpenCode API failed:', e.message);
-        }
-      }
-      break;
-    case 'zai':
-      if (zaiApiKey) {
-        try {
-          return await callZaiAPI(context, prompt);
-        } catch (e) {
-          console.error('[ProxyOS] Z.ai API failed:', e.message);
-        }
-      }
-      break;
-    case 'openrouter':
-      if (openrouterApiKey) {
-        try {
-          return await callOpenRouterAPI(context, prompt);
-        } catch (e) {
-          console.error('[ProxyOS] OpenRouter API failed:', e.message);
-        }
-      }
-      break;
-  }
-
-  if (nvidiaApiKey) {
+  // If a preferred provider is specified, try it first
+  if (selectedProvider) {
     try {
-      return await callNvidiaAPI(context, prompt);
+      const result = await callProvider(selectedProvider, context ?? '', prompt);
+      if (result) {
+        console.log(`[ProxyOS] Agent ${agentRole} succeeded with provider: ${selectedProvider}`);
+        llmFailover.recordSuccess(selectedProvider);
+        return result;
+      }
     } catch (e) {
-      console.error('[ProxyOS] Nvidia API failed, trying fallback:', e.message);
+      console.log(`[ProxyOS] Agent ${agentRole} preferred provider ${selectedProvider} failed: ${e.message}, falling through to failover`);
+      llmFailover.recordFailure(selectedProvider);
     }
   }
 
-  if (groq) {
-    try {
-      const completion = await groq.chat.completions.create({
-        messages: [
-          { role: 'system', content: context ?? '' },
-          { role: 'user', content: prompt }
-        ],
-        model: 'llama-3.3-70b-versatile',
-        temperature: 0.3,
-        max_tokens: 2048
-      });
-      return completion.choices[0].message.content;
-    } catch (e) {
-      console.error('[ProxyOS] Groq API failed:', e.message);
-    }
+  // Use the ProviderFailoverManager for automatic failover with circuit breakers
+  try {
+    const result = await llmFailover.executeWithFailover(async (providerName) => {
+      const output = await callProvider(providerName, context ?? '', prompt);
+      return { response: output };
+    });
+    console.log(`[ProxyOS] Agent ${agentRole} succeeded with provider: ${result.provider}`);
+    return result.response;
+  } catch (failoverError) {
+    console.log(`[ProxyOS] Agent ${agentRole}: all providers failed, trying Gemini for ${taskType}...`);
   }
 
+  // Gemini fallback for strategy/deep reasoning tasks
   const useGemini = genAI && (taskType === 'strategy' || taskType === 'deep_reasoning');
-
   if (useGemini) {
     const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
     const result = await model.generateContent([
@@ -402,7 +358,7 @@ async function routeToLLM(agentRole, prompt, context, taskType, selectedProvider
     return result.response.text();
   }
 
-  throw new Error('No LLM provider available');
+  throw new Error(`No LLM provider available for agent ${agentRole}`);
 }
 
 // --- Memory sync ------------------------------------------------------------
@@ -786,9 +742,11 @@ app.get('/api/providers', (_req, res) => {
       ...p,
       model: p.name === 'nvidia' ? 'nvidia/llama-3.1-nemotron-70b-instruct' :
              p.name === 'groq' ? 'llama-3.3-70b-versatile' :
+             p.name === 'bonsai' ? 'auto (frontier stealth)' :
              p.name === 'zai' ? 'GLM-4.7-Flash' :
              p.name === 'opencode' ? 'opencode/default' :
-             p.name === 'openrouter' ? 'anthropic/claude-3.5-sonnet' : 'gpt-4o'
+             p.name === 'openrouter' ? 'anthropic/claude-3.5-sonnet' :
+             p.name === 'anthropic' ? 'claude-3-5-sonnet-20241022' : 'gpt-4o'
     })),
     fallback: {
       url: OPENCLOUD_API_URL,
@@ -1557,198 +1515,9 @@ app.listen(PORT, async () => {
   console.log(`[ProxyOS backend] Listening on port ${PORT}`);
   await syncMemoriesOnBoot();
   
-  // Start Telegram bot if token is configured
+  // Telegram bot runs as a standalone adapter — see adapters/telegram.js
   if (process.env.TELEGRAM_BOT_TOKEN) {
-    startTelegramBot();
+    console.log('[ProxyOS backend] TELEGRAM_BOT_TOKEN detected. Use the standalone adapter: node adapters/telegram.js');
   }
   
-  // Tailscale can be enabled by uncommenting and setting TS_AUTH_KEY
-  // startTailscale();
 });
-
-async function startTailscale() {
-  const tsAuthKey = process.env.TS_AUTH_KEY;
-  const tsHostname = process.env.TS_HOSTNAME || 'proxyos-backend';
-  
-  if (!tsAuthKey) {
-    console.log('⚠️ Tailscale auth key not configured (TS_AUTH_KEY env var)');
-    console.log('   To enable Tailscale, set TS_AUTH_KEY environment variable');
-    return;
-  }
-  
-  try {
-    const { exec } = await import('child_process');
-    const { writeFileSync, mkdirSync, existsSync } = await import('fs');
-    const { chmodSync } = await import('fs');
-    const path = await import('path');
-    
-    // Check if tailscale exists
-    exec('which tailscale', async (err) => {
-      if (err) {
-        console.log('🔄 Downloading Tailscale...');
-        
-        // Download Tailscale at runtime
-        const tgzPath = '/tmp/tailscale.tgz';
-        const optPath = '/opt/tailscale';
-        
-        try {
-          const { execSync } = await import('child_process');
-          
-          // Download
-          execSync('curl -fsSL https://tailscale.com/stable/tailscale_1.76.6_amd64.tgz -o /tmp/tailscale.tgz', { stdio: 'pipe' });
-          
-          // Extract
-          mkdirSync('/opt', { recursive: true });
-          execSync('tar -xzf /tmp/tailscale.tgz -C /opt', { stdio: 'pipe' });
-          
-          // Make executable
-          chmodSync('/opt/tailscale_1.76.6_amd64/tailscaled', '755');
-          chmodSync('/opt/tailscale_1.76.6_amd64/tailscale', '755');
-          
-          console.log('✅ Tailscale downloaded');
-        } catch (downloadErr) {
-          console.log('⚠️ Could not download Tailscale:', downloadErr.message);
-          console.log('   Using public URL instead for connectivity');
-          return;
-        }
-      }
-      
-      console.log('🔄 Starting Tailscale...');
-      
-      exec(`tailscale up --authkey=${tsAuthKey} --hostname=${tsHostname}`, (error, stdout, stderr) => {
-        if (error) {
-          console.error('❌ Tailscale failed to start:', stderr);
-          return;
-        }
-        console.log('✅ Tailscale started:', stdout.trim());
-        
-        setTimeout(() => {
-          exec('tailscale ip -4', (err, ipOut) => {
-            if (!err && ipOut) {
-              console.log(`🌐 Tailscale IP: ${ipOut.trim()}`);
-            }
-          });
-        }, 5000);
-      });
-    });
-  } catch (error) {
-    console.error('❌ Tailscale initialization error:', error.message);
-  }
-}
-
-// --- Telegram Bot Integration ------------------------------------------------
-
-import { Bot } from 'grammy';
-
-function startTelegramBot() {
-  const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-  
-  if (!TELEGRAM_BOT_TOKEN) {
-    console.log('[Telegram Bot] TELEGRAM_BOT_TOKEN not configured, skipping');
-    return;
-  }
-  
-  const bot = new Bot(TELEGRAM_BOT_TOKEN);
-  
-  bot.on('message:text', async (ctx) => {
-    const userId = ctx.from?.id;
-    const chatId = ctx.chat?.id;
-    const text = ctx.message?.text;
-
-    if (!userId || !chatId || !text) return;
-    if (text.startsWith('/')) return;
-
-    try {
-      await ctx.replyWithChatAction('typing');
-
-      const result = await sendToProxyOS(text, userId, chatId);
-
-      if (!result.context_id) {
-        await ctx.reply('Sorry, I could not process your request. Please try again.');
-        return;
-      }
-
-      const finalResult = await pollForResult(result.context_id);
-
-      if (!finalResult || !finalResult.aggregated_text) {
-        await ctx.reply('Your request is being processed. I\'ll notify you when complete.');
-        return;
-      }
-
-      let replyText = finalResult.aggregated_text;
-      if (replyText.length > 4000) {
-        replyText = replyText.substring(0, 3950) + '\n\n... (truncated)';
-      }
-
-      await ctx.reply(replyText);
-    } catch (err) {
-      console.error('[Telegram] Error:', err.message);
-      await ctx.reply('An error occurred. Please try again later.');
-    }
-  });
-
-  bot.command('start', async (ctx) => {
-    await ctx.reply(
-      '👋 Hello! I\'m your ProxyOS assistant.\n\n' +
-      'Send me any message and I\'ll delegate it to my AI agents.\n\n' +
-      'Commands:\n/start - Show this message\n/help - Get help'
-    );
-  });
-
-  bot.command('help', async (ctx) => {
-    await ctx.reply(
-      '🤖 ProxyOS AI Office Assistant\n\n' +
-      'I have three specialized agents:\n\n' +
-      '• Minion: Coding, deployment, APIs\n' +
-      '• Scout: Research, market analysis\n' +
-      '• Sage: Strategy, QA, reviews\n\n' +
-      'Just send me a message describing what you need!'
-    );
-  });
-
-  bot.catch((err) => {
-    console.error('[Telegram] Bot error:', err);
-  });
-
-  bot.start();
-  console.log('[Telegram Bot] Started successfully');
-}
-
-async function sendToProxyOS(rawInput, channelUserId, chatId) {
-  const response = await fetch(`http://localhost:${PORT}/api/inbound-message`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      raw_input: rawInput,
-      channel: 'telegram',
-      channel_user_id: String(channelUserId),
-      reply_metadata: { chat_id: chatId }
-    })
-  });
-
-  if (!response.ok) {
-    throw new Error(`ProxyOS returned ${response.status}`);
-  }
-
-  return response.json();
-}
-
-async function pollForResult(contextId, maxAttempts = 60, intervalMs = 2000) {
-  for (let i = 0; i < maxAttempts; i++) {
-    const response = await fetch(`http://localhost:${PORT}/api/context/${contextId}/result`);
-    
-    if (response.status === 202) {
-      await new Promise(r => setTimeout(r, intervalMs));
-      continue;
-    }
-
-    if (response.ok) {
-      return response.json();
-    }
-
-    await new Promise(r => setTimeout(r, intervalMs));
-  }
-
-  return null;
-}
-

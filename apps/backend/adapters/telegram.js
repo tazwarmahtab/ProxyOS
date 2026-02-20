@@ -64,21 +64,32 @@ async function sendToProxyOS(rawInput, channelUserId, chatId, threadTs = null, s
 }
 
 async function pollForResult(contextId, maxAttempts = 60, intervalMs = 2000) {
+  const startTime = Date.now();
   for (let i = 0; i < maxAttempts; i++) {
-    const response = await fetch(`${PROXYOS_BACKEND_URL}/api/context/${contextId}/result`);
-    
-    if (response.status === 202) {
+    try {
+      const response = await fetch(`${PROXYOS_BACKEND_URL}/api/context/${contextId}/result`);
+
+      if (response.status === 202) {
+        await new Promise(r => setTimeout(r, intervalMs));
+        continue;
+      }
+
+      if (response.ok) {
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+        console.log(`[Telegram Adapter] Result ready for ${contextId} after ${elapsed}s`);
+        return response.json();
+      }
+
+      console.warn(`[Telegram Adapter] Unexpected status ${response.status} for ${contextId}`);
       await new Promise(r => setTimeout(r, intervalMs));
-      continue;
+    } catch (fetchError) {
+      console.error(`[Telegram Adapter] Poll error for ${contextId}:`, fetchError.message);
+      await new Promise(r => setTimeout(r, intervalMs));
     }
-
-    if (response.ok) {
-      return response.json();
-    }
-
-    await new Promise(r => setTimeout(r, intervalMs));
   }
 
+  const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+  console.warn(`[Telegram Adapter] Polling timed out for ${contextId} after ${elapsed}s (${maxAttempts} attempts)`);
   return null;
 }
 
@@ -211,9 +222,12 @@ bot.command('help', async (ctx) => {
     'Available providers:\n' +
     '• nvidia - NVIDIA GLM-5 (fast, recommended)\n' +
     '• groq - Groq Llama (fast, free tier)\n' +
+    '• bonsai - Frontier models for free (Claude, GPT-5)\n' +
     '• zai - Z.ai GLM-4 (free)\n' +
+    '• github-copilot - GitHub Copilot\n' +
     '• opencode - OpenCode (experimental)\n' +
-    '• openrouter - OpenRouter (multi-model)\n\n' +
+    '• openrouter - OpenRouter (multi-model)\n' +
+    '• anthropic - Anthropic Claude\n\n' +
     'Just send me a message describing what you need!'
   );
 });
@@ -229,16 +243,19 @@ bot.command('provider', async (ctx) => {
       'Available providers:\n' +
       '• nvidia - NVIDIA GLM-5 (fast, recommended)\n' +
       '• groq - Groq Llama (fast, free tier)\n' +
+      '• bonsai - Frontier models for free (Claude, GPT-5)\n' +
       '• zai - Z.ai GLM-4 (free)\n' +
+      '• github-copilot - GitHub Copilot\n' +
       '• opencode - OpenCode (experimental)\n' +
-      '• openrouter - OpenRouter (multi-model)\n\n' +
+      '• openrouter - OpenRouter (multi-model)\n' +
+      '• anthropic - Anthropic Claude\n\n' +
       'Use: /provider <name> to switch'
     );
     return;
   }
-  
+
   const provider = args[0].toLowerCase();
-  const validProviders = ['nvidia', 'groq', 'zai', 'opencode', 'openrouter'];
+  const validProviders = ['nvidia', 'groq', 'bonsai', 'zai', 'github-copilot', 'opencode', 'openrouter', 'anthropic'];
   
   if (!validProviders.includes(provider)) {
     await ctx.reply(`Invalid provider: ${provider}\nValid: ${validProviders.join(', ')}`);
@@ -251,20 +268,26 @@ bot.command('provider', async (ctx) => {
 
 bot.command('providers', async (ctx) => {
   try {
-    const response = await fetch('https://taz7770-proxyos-openclaw.hf.space/api/providers');
+    const response = await fetch(`${PROXYOS_BACKEND_URL}/api/providers`);
     const data = await response.json();
-    
+
     let message = '🔌 *Available Providers:*\n\n';
     for (const p of data.providers) {
       const status = p.healthy ? '✅' : '❌';
       const enabled = p.enabled ? '' : ' (disabled)';
-      message += `${status} *${p.name}*${enabled}\n`;
-      message += `   Priority: ${p.priority}\n`;
-      message += `   Circuit: ${p.circuitBreaker?.state}\n\n`;
+      const free = p.free ? ' (free)' : '';
+      message += `${status} *${p.name}*${enabled}${free}\n`;
+      message += `   Priority: ${p.priority} | Model: ${p.model || 'default'}\n`;
+      message += `   Circuit: ${p.circuitBreaker?.state || 'CLOSED'}\n\n`;
     }
-    
+
+    if (data.fallback) {
+      message += `🔄 *Fallback:* OpenClaw Cloud\n`;
+    }
+
     await ctx.reply(message, { parse_mode: 'Markdown' });
   } catch (error) {
+    console.error('[Telegram Adapter] Failed to fetch providers:', error.message);
     await ctx.reply('Could not fetch provider status. Try again later.');
   }
 });
@@ -309,9 +332,12 @@ bot.command('settings', async (ctx) => {
     `Available providers:\n` +
     `• nvidia - Fast, recommended\n` +
     `• groq - Fast, free tier\n` +
+    `• bonsai - Free frontier models\n` +
     `• zai - Free\n` +
+    `• github-copilot - GitHub Copilot\n` +
     `• opencode - Experimental\n` +
-    `• openrouter - Multi-model\n\n` +
+    `• openrouter - Multi-model\n` +
+    `• anthropic - Claude\n\n` +
     `Change with: /provider <name>`,
     { parse_mode: 'Markdown' }
   );

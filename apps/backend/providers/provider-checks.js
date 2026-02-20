@@ -19,6 +19,17 @@ const PROVIDER_CONFIGS = {
     }),
     testModel: 'llama-3.1-70b-versatile'
   },
+  bonsai: {
+    name: 'Bonsai',
+    baseUrl: 'https://go.trybons.ai',
+    healthEndpoint: '/models',
+    headers: (key) => ({
+      'Authorization': `Bearer ${key}`,
+      'Content-Type': 'application/json'
+    }),
+    testModel: 'auto',
+    free: true
+  },
   zai: {
     name: 'Z.ai',
     baseUrl: 'https://api.z.ai/api/coding/paas/v4',
@@ -80,6 +91,7 @@ function getApiKey(provider) {
   const keys = {
     nvidia: process.env.NVIDIA_API_KEY,
     groq: process.env.GROQ_API_KEY,
+    bonsai: process.env.BONSAI_API_KEY,
     zai: process.env.ZAI_API_KEY,
     'github-copilot': process.env.GITHUB_COPILOT_TOKEN,
     opencode: process.env.OPENCODE_API_KEY,
@@ -148,7 +160,7 @@ async function checkRedis() {
 }
 
 async function checkAllProviders() {
-  const providers = ['nvidia', 'groq', 'zai', 'github-copilot', 'opencode', 'openrouter', 'anthropic'];
+  const providers = ['nvidia', 'groq', 'bonsai', 'zai', 'github-copilot', 'opencode', 'openrouter', 'anthropic'];
   const results = {};
 
   await Promise.all(

@@ -25,8 +25,24 @@
       }
     },
     {
-      "name": "zai",
+      "name": "bonsai",
       "priority": 3,
+      "enabled": true,
+      "free": true,
+      "config": {
+        "baseUrl": "https://go.trybons.ai",
+        "models": ["auto"],
+        "defaultModel": "auto",
+        "maxTokens": 4096,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "note": "Routes to frontier models (Claude, GPT-5, GLM) in stealth mode"
+      }
+    },
+    {
+      "name": "zai",
+      "priority": 4,
       "enabled": true,
       "free": true,
       "config": {
@@ -41,7 +57,7 @@
     },
     {
       "name": "github-copilot",
-      "priority": 4,
+      "priority": 5,
       "enabled": true,
       "config": {
         "baseUrl": "https://api.github.com",
@@ -54,7 +70,7 @@
     },
     {
       "name": "opencode",
-      "priority": 5,
+      "priority": 6,
       "enabled": true,
       "config": {
         "baseUrl": "https://api.opencode.ai/v1",
@@ -66,7 +82,7 @@
     },
     {
       "name": "openrouter",
-      "priority": 6,
+      "priority": 7,
       "enabled": true,
       "config": {
         "baseUrl": "https://openrouter.ai/api/v1",
@@ -80,7 +96,7 @@
     },
     {
       "name": "anthropic",
-      "priority": 7,
+      "priority": 8,
       "enabled": true,
       "config": {
         "baseUrl": "https://api.anthropic.com/v1",

@@ -59,11 +59,12 @@ class ProviderFailoverManager {
     this.providers = [
       { name: 'nvidia', priority: 1, healthy: true, enabled: true },
       { name: 'groq', priority: 2, healthy: true, enabled: true },
-      { name: 'zai', priority: 3, healthy: true, enabled: true, free: true },
-      { name: 'github-copilot', priority: 4, healthy: true, enabled: true },
-      { name: 'opencode', priority: 5, healthy: true, enabled: true },
-      { name: 'openrouter', priority: 6, healthy: true, enabled: true },
-      { name: 'anthropic', priority: 7, healthy: true, enabled: true }
+      { name: 'bonsai', priority: 3, healthy: true, enabled: true, free: true },
+      { name: 'zai', priority: 4, healthy: true, enabled: true, free: true },
+      { name: 'github-copilot', priority: 5, healthy: true, enabled: true },
+      { name: 'opencode', priority: 6, healthy: true, enabled: true },
+      { name: 'openrouter', priority: 7, healthy: true, enabled: true },
+      { name: 'anthropic', priority: 8, healthy: true, enabled: true }
     ];
     this.circuitBreakers = new Map();
     this.currentProvider = 'nvidia';
