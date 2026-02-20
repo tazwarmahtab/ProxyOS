@@ -62,7 +62,8 @@ class ProviderFailoverManager {
       { name: 'zai', priority: 3, healthy: true, enabled: true, free: true },
       { name: 'github-copilot', priority: 4, healthy: true, enabled: true },
       { name: 'opencode', priority: 5, healthy: true, enabled: true },
-      { name: 'openrouter', priority: 6, healthy: true, enabled: true }
+      { name: 'openrouter', priority: 6, healthy: true, enabled: true },
+      { name: 'anthropic', priority: 7, healthy: true, enabled: true }
     ];
     this.circuitBreakers = new Map();
     this.currentProvider = 'nvidia';

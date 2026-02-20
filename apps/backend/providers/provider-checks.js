@@ -62,6 +62,17 @@ const PROVIDER_CONFIGS = {
       'Content-Type': 'application/json'
     }),
     testModel: 'anthropic/claude-3-opus'
+  },
+  anthropic: {
+    name: 'Anthropic',
+    baseUrl: 'https://api.anthropic.com/v1',
+    healthEndpoint: '/models',
+    headers: (key) => ({
+      'Content-Type': 'application/json',
+      'anthropic-version': '2023-06-01',
+      'x-api-key': key
+    }),
+    testModel: 'claude-3-5-sonnet-20241022'
   }
 };
 
@@ -72,7 +83,8 @@ function getApiKey(provider) {
     zai: process.env.ZAI_API_KEY,
     'github-copilot': process.env.GITHUB_COPILOT_TOKEN,
     opencode: process.env.OPENCODE_API_KEY,
-    openrouter: process.env.OPENROUTER_API_KEY
+    openrouter: process.env.OPENROUTER_API_KEY,
+    anthropic: process.env.ANTHROPIC_API_KEY
   };
   return keys[provider];
 }
@@ -122,8 +134,21 @@ async function checkProvider(provider) {
   }
 }
 
+async function checkRedis() {
+  try {
+    const { redisClient } = await import('../lib/redis.js');
+    return await redisClient.healthCheck();
+  } catch (error) {
+    return {
+      status: 'error',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    };
+  }
+}
+
 async function checkAllProviders() {
-  const providers = ['nvidia', 'groq', 'zai', 'github-copilot', 'opencode', 'openrouter'];
+  const providers = ['nvidia', 'groq', 'zai', 'github-copilot', 'opencode', 'openrouter', 'anthropic'];
   const results = {};
 
   await Promise.all(
@@ -143,4 +168,16 @@ async function checkAllProviders() {
   return results;
 }
 
-export { checkProvider, checkAllProviders, PROVIDER_CONFIGS };
+async function checkAllServices() {
+  const [providers, redis] = await Promise.all([
+    checkAllProviders(),
+    checkRedis()
+  ]);
+
+  return {
+    providers,
+    redis
+  };
+}
+
+export { checkProvider, checkAllProviders, checkAllServices, checkRedis, PROVIDER_CONFIGS };

@@ -11,6 +11,8 @@ import { Groq } from 'groq-sdk';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { ProviderFailoverManager } from './providers/failover-manager.js';
 import { checkAllProviders } from './providers/provider-checks.js';
+import { callAnthropicAPI } from './providers/anthropic-client.js';
+import { redisClient } from './lib/redis.js';
 
 const cache = new nodeCache({ stdTTL: 300 });
 
@@ -28,22 +30,17 @@ const PORT = process.env.PORT || 7860;
 // --- Provider Failover Manager ---
 const llmFailover = new ProviderFailoverManager();
 
-// --- In-Memory Context Storage (use Redis in production) ---
-const userContexts = new Map();
-
-function saveContext(userId, context) {
-  userContexts.set(userId, {
-    ...context,
-    updatedAt: new Date().toISOString()
-  });
+// --- Context Storage (Redis with in-memory fallback) ---
+async function saveContext(userId, context) {
+  await redisClient.saveContext(userId, context);
 }
 
-function getContext(userId) {
-  return userContexts.get(userId) || { messages: [], provider: 'nvidia' };
+async function getContext(userId) {
+  return await redisClient.getContext(userId);
 }
 
-function clearContext(userId) {
-  userContexts.delete(userId);
+async function clearContext(userId) {
+  await redisClient.clearContext(userId);
 }
 
 // --- OpenClaw Cloud Fallback ---
@@ -68,7 +65,7 @@ async function callOpenCloudAPI(message, context = []) {
 
 // --- Unified LLM Call with Failover ---
 async function unifiedLLMCall(message, preferredProvider = null, contextMessages = []) {
-  const providers = ['nvidia', 'groq', 'zai', 'opencode', 'openrouter'];
+  const providers = ['nvidia', 'groq', 'zai', 'opencode', 'openrouter', 'anthropic'];
   const systemPrompt = contextMessages.slice(-10).map(m => `${m.role}: ${m.content}`).join('\n');
   
   // Try local providers first
@@ -103,6 +100,9 @@ async function unifiedLLMCall(message, preferredProvider = null, contextMessages
           break;
         case 'openrouter':
           if (openrouterApiKey) result = await callOpenRouterAPI(systemPrompt, message);
+          break;
+        case 'anthropic':
+          if (anthropicApiKey) result = await callAnthropicAPI(systemPrompt, message);
           break;
       }
       
@@ -147,6 +147,7 @@ const bonsaiApiKey = process.env.BONSAI_API_KEY;
 const opencodeApiKey = process.env.OPENCODE_API_KEY;
 const openrouterApiKey = process.env.OPENROUTER_API_KEY;
 const zaiApiKey = process.env.ZAI_API_KEY;
+const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
 const llmProvider = process.env.LLM_PROVIDER || 'nvidia';
 const nvidiaModel = process.env.NVIDIA_MODEL || 'z-ai/glm5';
 
@@ -1066,7 +1067,7 @@ app.post('/api/inbound-message', async (req, res) => {
 
   try {
     // Get existing context for this user
-    const userContext = getContext(channel_user_id);
+    const userContext = await getContext(channel_user_id);
     
     // Add user's message to context
     if (enable_context) {
@@ -1165,7 +1166,7 @@ app.post('/api/inbound-message', async (req, res) => {
     }
 
     // Save updated context
-    saveContext(channel_user_id, userContext);
+    await saveContext(channel_user_id, userContext);
 
     const delegation = await analyzeAndDelegate(raw_input, contextRow.id, project_tag);
 
@@ -1181,11 +1182,143 @@ app.post('/api/inbound-message', async (req, res) => {
   }
 });
 
+// --- OpenClaw Bridge Endpoint -----------------------------------------------
+// Receives messages from OpenClaw and processes through ProxyOS agent system
+
+app.post('/api/openclaw-message', async (req, res) => {
+  const {
+    raw_input,
+    channel = 'openclaw',
+    channel_user_id,
+    reply_metadata = {},
+    project_tag = 'openclaw-bridge',
+    provider,
+    enable_context = true
+  } = req.body ?? {};
+
+  const selectedProvider = provider || 'nvidia';
+
+  if (!raw_input || typeof raw_input !== 'string') {
+    return res.status(400).json({ status: 'error', message: 'raw_input is required' });
+  }
+
+  if (!channel_user_id || typeof channel_user_id !== 'string') {
+    return res.status(400).json({ status: 'error', message: 'channel_user_id is required' });
+  }
+
+  try {
+    console.log(`[ProxyOS] OpenClaw message received from ${channel_user_id}: ${raw_input.substring(0, 50)}...`);
+
+    // Get existing context for this user
+    const userContext = await getContext(`openclaw:${channel_user_id}`);
+    
+    // Add user's message to context
+    if (enable_context) {
+      userContext.messages.push({ role: 'user', content: raw_input });
+      
+      // Keep only last 20 messages for context window
+      if (userContext.messages.length > 20) {
+        userContext.messages = userContext.messages.slice(-20);
+      }
+      userContext.provider = selectedProvider;
+    }
+
+    const energyGained = Math.min(Math.max(Math.floor(raw_input.length / 10), 5), 50);
+
+    const metadata = {
+      reply_address: {
+        channel,
+        channel_user_id,
+        ...reply_metadata
+      },
+      source: 'openclaw-bridge',
+      provider: selectedProvider
+    };
+
+    // Create context in database
+    const { data: contextRow, error: ctxError } = await supabase
+      .from('proxy_context')
+      .insert({
+        raw_input,
+        input_type: 'text',
+        project_tag,
+        metadata,
+        energy_gained: energyGained
+      })
+      .select()
+      .single();
+
+    if (ctxError) throw ctxError;
+
+    // Try to increment energy
+    try {
+      await supabase.rpc('increment_proxy_energy', {
+        energy_amount: energyGained
+      });
+    } catch (e) {}
+
+    // Create outbound delivery entry for OpenClaw to poll
+    const { error: deliveryError } = await supabase
+      .from('outbound_deliveries')
+      .insert({
+        context_id: contextRow.id,
+        channel,
+        channel_user_id,
+        channel_extra: reply_metadata,
+        payload: '',
+        status: 'pending'
+      });
+
+    if (deliveryError) {
+      console.error('[ProxyOS backend] Failed to create OpenClaw delivery row:', deliveryError.message);
+    }
+
+    // If context enabled, call LLM with context for immediate response
+    let llmResponse = null;
+    if (enable_context && userContext.messages.length > 0) {
+      try {
+        llmResponse = await unifiedLLMCall(raw_input, selectedProvider, userContext.messages);
+        
+        // Save LLM response to context
+        if (llmResponse && llmResponse.response) {
+          userContext.messages.push({ role: 'assistant', content: llmResponse.response });
+          
+          // Keep context manageable
+          if (userContext.messages.length > 20) {
+            userContext.messages = userContext.messages.slice(-20);
+          }
+        }
+      } catch (llmError) {
+        console.error('[ProxyOS] OpenClaw LLM call failed:', llmError.message);
+      }
+    }
+
+    // Save updated context
+    await saveContext(`openclaw:${channel_user_id}`, userContext);
+
+    // Delegate to agents for async processing
+    const delegation = await analyzeAndDelegate(raw_input, contextRow.id, project_tag);
+
+    console.log(`[ProxyOS] OpenClaw context ${contextRow.id} created, delegations: ${delegation.length}`);
+
+    return res.json({
+      status: 'processing',
+      context_id: contextRow.id,
+      delegation,
+      llm_response: llmResponse ? llmResponse.response : null,
+      provider: llmResponse ? llmResponse.provider : selectedProvider
+    });
+  } catch (err) {
+    console.error('[ProxyOS] OpenClaw message error:', err.message);
+    return res.status(500).json({ status: 'error', message: err.message });
+  }
+});
+
 // --- Context Management Endpoints ---
 
-app.get('/api/user-context/:userId', (req, res) => {
+app.get('/api/user-context/:userId', async (req, res) => {
   const { userId } = req.params;
-  const context = getContext(userId);
+  const context = await getContext(userId);
   res.json({
     user_id: userId,
     message_count: context.messages.length,
@@ -1195,10 +1328,24 @@ app.get('/api/user-context/:userId', (req, res) => {
   });
 });
 
-app.delete('/api/user-context/:userId', (req, res) => {
+app.delete('/api/user-context/:userId', async (req, res) => {
   const { userId } = req.params;
-  clearContext(userId);
+  await clearContext(userId);
   res.json({ status: 'success', message: `Context cleared for user ${userId}` });
+});
+
+app.get('/api/health', async (req, res) => {
+  try {
+    const { checkAllServices } = await import('./providers/provider-checks.js');
+    const health = await checkAllServices();
+    res.json(health);
+  } catch (error) {
+    res.status(500).json({ 
+      status: 'error', 
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
 });
 
 app.get('/api/context/:id/status', async (req, res) => {
@@ -1489,7 +1636,14 @@ async function startTailscale() {
 import { Bot } from 'grammy';
 
 function startTelegramBot() {
-  const bot = new Bot(process.env.TELEGRAM_BOT_TOKEN);
+  const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+  
+  if (!TELEGRAM_BOT_TOKEN) {
+    console.log('[Telegram Bot] TELEGRAM_BOT_TOKEN not configured, skipping');
+    return;
+  }
+  
+  const bot = new Bot(TELEGRAM_BOT_TOKEN);
   
   bot.on('message:text', async (ctx) => {
     const userId = ctx.from?.id;

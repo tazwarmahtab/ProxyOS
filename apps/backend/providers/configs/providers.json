@@ -77,6 +77,21 @@
           "X-Title": "ProxyOS Backend"
         }
       }
+    },
+    {
+      "name": "anthropic",
+      "priority": 7,
+      "enabled": true,
+      "config": {
+        "baseUrl": "https://api.anthropic.com/v1",
+        "models": ["claude-3-5-sonnet-20241022", "claude-3-haiku-20240307"],
+        "defaultModel": "claude-3-5-sonnet-20241022",
+        "maxTokens": 4096,
+        "headers": {
+          "Content-Type": "application/json",
+          "anthropic-version": "2023-06-01"
+        }
+      }
     }
   ]
 }
