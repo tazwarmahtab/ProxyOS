@@ -1378,6 +1378,32 @@ app.post("/api/inbound-message", async (req, res) => {
       project_tag,
     );
 
+    // If channel is telegram and we have a valid LLM response, reply immediately.
+    // This allows webhooks hitting /api/inbound-message to receive instant replies.
+    if (channel === "telegram" && llmResponse && llmResponse.response && TELEGRAM_BOT_TOKEN) {
+      try {
+        const telegramBot = new Bot(TELEGRAM_BOT_TOKEN);
+        const chatId = reply_metadata.chat_id || channel_user_id;
+        const threadTs = reply_metadata.thread_ts;
+        
+        const replyOptions = {};
+        if (threadTs) {
+          replyOptions.message_thread_id = threadTs;
+        }
+
+        let replyText = llmResponse.response;
+        if (replyText.length > 4000) {
+          replyText = replyText.substring(0, 3950) + "\n\n... (truncated)";
+        }
+        
+        await telegramBot.api.sendMessage(chatId, replyText, replyOptions);
+        await markDeliverySent(contextRow.id);
+        console.log(`[Telegram Webhook] Sent direct reply to ${chatId}`);
+      } catch (e) {
+        console.error("[Telegram Webhook] Failed to send direct reply:", e.message);
+      }
+    }
+
     return res.json({
       status: "success",
       context_id: contextRow.id,
