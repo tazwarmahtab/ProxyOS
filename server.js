@@ -1740,7 +1740,10 @@ function startTelegramBot() {
     const text = ctx.message?.text;
 
     if (!userId || !chatId || !text) return;
-    if (text.startsWith("/")) return;
+    if (text.startsWith("/")) {
+      await ctx.reply("Unrecognized command. Send a regular message to talk to the AI, or type /help for options.");
+      return;
+    }
 
     try {
       await ctx.replyWithChatAction("typing");
