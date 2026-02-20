@@ -26,7 +26,7 @@ const cache = new nodeCache({ stdTTL: 300 });
 
 // --- Telegram Configuration ---
 const TELEGRAM_ENABLED = process.env.TELEGRAM_ENABLED !== "false";
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const TELEGRAM_BOT_TOKEN = (process.env.TELEGRAM_BOT_TOKEN || "").trim();
 const TELEGRAM_RATE_LIMIT = parseInt(process.env.TELEGRAM_RATE_LIMIT || "20");
 const TELEGRAM_GROUPS_ENABLED = process.env.TELEGRAM_GROUPS_ENABLED === "true";
 const TELEGRAM_GROUP_MENTION_ONLY =
@@ -1963,8 +1963,19 @@ function startTelegramBot() {
     console.error("[Telegram] Bot error:", err);
   });
 
-  bot.start();
-  console.log("[Telegram Bot] Started successfully");
+  bot.api.getMe().then((me) => {
+    console.log(`[Telegram Bot] Verified successfully as @${me.username}`);
+    bot.start({
+      onStart: () => {
+        console.log(`[Telegram Bot] Polling started reliably`);
+      },
+      drop_pending_updates: true,
+    }).catch((err) => {
+      console.error("[Telegram Bot] Fatal polling error during runtime:", err);
+    });
+  }).catch((err) => {
+    console.error(`[Telegram Bot] Fatal Initialization Error (Check Token or Network): ${err.message}`);
+  });
 }
 
 async function sendToProxyOS(
@@ -1981,7 +1992,7 @@ async function sendToProxyOS(
     replyMetadata.thread_ts = threadTs;
   }
 
-  const response = await fetch(`http://localhost:${PORT}/api/inbound-message`, {
+  const response = await fetch(`http://127.0.0.1:${PORT}/api/inbound-message`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
